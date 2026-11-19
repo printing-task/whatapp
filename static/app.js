@@ -300,7 +300,9 @@ function deleteChatFromMenu() {
                 return `
                     <div onclick="selectChat('${c.phone_number}', '${escapeHtml(c.sender_name)}', '${c.last_channel}')" 
                          class="group p-3.5 cursor-pointer transition flex items-center space-x-3 ${activeClass}">
-                        <div class="w-10 h-10 rounded-full ${avatarBg} flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-sm">
+                        <div onclick="event.stopPropagation(); openContactProfileModal('${c.phone_number}')" 
+                             class="w-10 h-10 rounded-full ${avatarBg} flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-sm cursor-pointer hover:ring-2 hover:ring-emerald-400 hover:scale-105 transition"
+                             title="Click icon to view customer info & photos">
                             ${getInitials(c.sender_name || c.phone_number)}
                         </div>
                         <div class="flex-1 min-w-0">
@@ -1463,6 +1465,235 @@ function deleteChatFromMenu() {
         function escapeHtml(str) {
             if (!str) return '';
             return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+
+        // ====================================================================
+        // CUSTOMER PROFILE & INFORMATION MODAL
+        // ====================================================================
+        let activeProfilePhone = null;
+
+        async function openContactProfileModal(phone) {
+            phone = phone || currentPhone;
+            if (!phone) {
+                alert("Please select a customer first.");
+                return;
+            }
+            activeProfilePhone = phone;
+
+            const modal = document.getElementById('contact-profile-modal');
+            if (modal) modal.classList.remove('hidden');
+
+            const localConv = allConversations.find(c => c.phone_number === phone);
+            const nameEl = document.getElementById('prof-name');
+            const phoneEl = document.getElementById('prof-phone');
+            const avatarEl = document.getElementById('prof-avatar');
+            const channelBadge = document.getElementById('prof-channel-badge');
+            const waLink = document.getElementById('prof-wa-link');
+
+            const initName = (localConv ? localConv.sender_name : currentContactName) || 'Customer';
+            if (nameEl) nameEl.innerText = initName;
+            if (phoneEl) phoneEl.innerText = phone;
+            if (avatarEl) {
+                avatarEl.className = `w-12 h-12 rounded-2xl ${getAvatarColor(phone)} text-white font-extrabold flex items-center justify-center text-lg shadow-md flex-shrink-0`;
+                avatarEl.innerHTML = getInitials(initName || phone);
+            }
+            if (channelBadge) {
+                channelBadge.innerText = (localConv?.last_channel || 'WHATSAPP').toUpperCase().replace('_', ' ');
+            }
+            const cleanDigits = phone.replace(/[^0-9]/g, '');
+            if (waLink) waLink.href = `https://wa.me/${cleanDigits}`;
+
+            try {
+                const res = await fetch(`/api/dashboard/contact/profile?phone=${encodeURIComponent(phone)}`);
+                if (!res.ok) return;
+                const p = await res.json();
+
+                if (nameEl) nameEl.innerText = p.sender_name || phone;
+                if (avatarEl) avatarEl.innerHTML = getInitials(p.sender_name || phone);
+                if (channelBadge) channelBadge.innerText = (p.channel || 'WHATSAPP').toUpperCase().replace('_', ' ');
+
+                // 24h Free Window banner
+                const winBox = document.getElementById('prof-window-box');
+                if (winBox) {
+                    if (p.is_free_window_active && p.free_window_seconds_left > 0) {
+                        winBox.className = "p-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 flex items-center justify-between";
+                        winBox.innerHTML = `
+                            <div class="flex items-center space-x-2.5">
+                                <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></span>
+                                <div>
+                                    <span class="font-extrabold text-emerald-900 block text-xs">24h Free Promo Window Active</span>
+                                    <span class="text-[10px] text-emerald-700">Expires in <strong>${formatWindowTime(p.free_window_seconds_left)}</strong> • ₹0 Meta fee to send offers</span>
+                                </div>
+                            </div>
+                            <button type="button" onclick="openPromoModal('current'); closeContactProfileModal();" class="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition shadow-xs">
+                                Send Offer
+                            </button>
+                        `;
+                    } else {
+                        winBox.className = "p-3 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between";
+                        winBox.innerHTML = `
+                            <div class="flex items-center space-x-2.5">
+                                <i class="fas fa-clock text-slate-400 text-sm"></i>
+                                <div>
+                                    <span class="font-bold text-slate-700 block text-xs">24h Service Window Expired</span>
+                                    <span class="text-[10px] text-slate-500">Wait for customer to reply or use paid Meta template</span>
+                                </div>
+                            </div>
+                            <span class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold">Closed</span>
+                        `;
+                    }
+                }
+
+                // Bot toggle
+                const botToggle = document.getElementById('prof-bot-toggle');
+                if (botToggle) botToggle.checked = !!p.bot_enabled;
+
+                // Stats
+                const stats = p.stats || {};
+                const stTotal = document.getElementById('prof-stat-total');
+                const stIn = document.getElementById('prof-stat-in');
+                const stOut = document.getElementById('prof-stat-out');
+                const stFirst = document.getElementById('prof-stat-first');
+                const stLast = document.getElementById('prof-stat-last');
+
+                if (stTotal) stTotal.innerText = stats.total_messages || 0;
+                if (stIn) stIn.innerText = stats.inbound_messages || 0;
+                if (stOut) stOut.innerText = stats.outbound_messages || 0;
+                if (stFirst) stFirst.innerText = formatTime(stats.first_seen) || 'Recently';
+                if (stLast) stLast.innerText = formatTime(stats.last_seen) || 'Just now';
+
+                // Media Gallery
+                const mediaGallery = document.getElementById('prof-media-gallery');
+                const mediaCountEl = document.getElementById('prof-media-count');
+                const mediaList = p.media || [];
+                if (mediaCountEl) mediaCountEl.innerText = mediaList.length;
+
+                if (mediaGallery) {
+                    if (mediaList.length === 0) {
+                        mediaGallery.innerHTML = `<div class="col-span-4 p-4 text-center text-slate-400 text-xs italic bg-slate-50 rounded-xl border border-slate-100">No photos or documents exchanged yet.</div>`;
+                    } else {
+                        mediaGallery.innerHTML = mediaList.map(m => {
+                            if (m.media_type === 'image' && m.media_url) {
+                                return `
+                                    <a href="${m.media_url}" target="_blank" class="block aspect-square rounded-xl overflow-hidden border border-slate-200 hover:opacity-90 hover:ring-2 hover:ring-emerald-400 transition group relative shadow-xs" title="Click to view full image">
+                                        <img src="${m.media_url}" class="w-full h-full object-cover group-hover:scale-105 transition duration-200" loading="lazy"/>
+                                    </a>
+                                `;
+                            } else {
+                                const filename = escapeHtml(m.media_filename || 'Document.pdf');
+                                return `
+                                    <a href="${m.media_url}" target="_blank" download="${filename}" class="aspect-square rounded-xl bg-slate-50 border border-slate-200 p-2 flex flex-col items-center justify-center text-center hover:bg-slate-100 transition shadow-xs" title="Download ${filename}">
+                                        <i class="fas fa-file-pdf text-red-500 text-xl mb-1"></i>
+                                        <span class="text-[9px] font-bold text-slate-700 truncate max-w-full">${filename}</span>
+                                    </a>
+                                `;
+                            }
+                        }).join('');
+                    }
+                }
+
+                // Bookings
+                const bookingsList = document.getElementById('prof-bookings-list');
+                const bookingsCountEl = document.getElementById('prof-bookings-count');
+                const bList = p.bookings || [];
+                if (bookingsCountEl) bookingsCountEl.innerText = bList.length;
+
+                if (bookingsList) {
+                    if (bList.length === 0) {
+                        bookingsList.innerHTML = `<div class="p-3 text-center text-slate-400 text-xs italic bg-slate-50 rounded-xl border border-slate-100">No bookings recorded for this customer.</div>`;
+                    } else {
+                        bookingsList.innerHTML = bList.map(b => `
+                            <div class="p-2.5 rounded-xl bg-amber-50/60 border border-amber-200/80 flex items-center justify-between">
+                                <div>
+                                    <span class="font-bold text-slate-800 text-xs block">${escapeHtml(b.service_requested || 'Service Task')}</span>
+                                    <span class="text-[10px] text-amber-800 font-medium">${escapeHtml(b.booking_date_time || '')}</span>
+                                </div>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${b.status === 'confirmed' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">${escapeHtml(b.status || 'pending')}</span>
+                            </div>
+                        `).join('');
+                    }
+                }
+
+                // Notes & Tags
+                const tagsInput = document.getElementById('prof-tags-input');
+                const notesInput = document.getElementById('prof-notes-input');
+                if (tagsInput) tagsInput.value = p.tags || '';
+                if (notesInput) notesInput.value = p.notes || '';
+                const saveStatus = document.getElementById('prof-save-status');
+                if (saveStatus) saveStatus.classList.add('hidden');
+
+            } catch (err) {
+                console.error("Error fetching contact profile:", err);
+            }
+        }
+
+        function closeContactProfileModal() {
+            const modal = document.getElementById('contact-profile-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        function copyContactPhone() {
+            if (!activeProfilePhone) return;
+            navigator.clipboard.writeText(activeProfilePhone).then(() => {
+                alert(`Copied ${activeProfilePhone} to clipboard!`);
+            });
+        }
+
+        async function toggleContactBotFromProfile(enabled) {
+            if (!activeProfilePhone) return;
+            await toggleContactBot(enabled);
+            const desc = document.getElementById('prof-bot-desc');
+            if (desc) {
+                desc.innerText = enabled ? 'AI automatically replies to incoming questions from this customer' : 'AI bot is paused. Human agent will handle messages manually.';
+            }
+        }
+
+        function openAddBookingModalForContact() {
+            closeContactProfileModal();
+            if (typeof openBookCurrentContactModal === 'function') {
+                openBookCurrentContactModal();
+            }
+        }
+
+        async function saveContactProfileNotes() {
+            if (!activeProfilePhone) return;
+            const tags = document.getElementById('prof-tags-input')?.value.trim() || '';
+            const notes = document.getElementById('prof-notes-input')?.value.trim() || '';
+            const saveBtn = document.getElementById('prof-save-btn');
+            const saveStatus = document.getElementById('prof-save-status');
+
+            if (saveBtn) {
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i> Saving...`;
+            }
+
+            try {
+                const res = await fetch('/api/dashboard/contact/profile', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        phone: activeProfilePhone,
+                        tags: tags,
+                        notes: notes
+                    })
+                });
+
+                if (res.ok) {
+                    if (saveStatus) {
+                        saveStatus.classList.remove('hidden');
+                        setTimeout(() => saveStatus.classList.add('hidden'), 3000);
+                    }
+                } else {
+                    alert("Failed to save notes.");
+                }
+            } catch (e) {
+                alert("Error saving notes: " + e.message);
+            } finally {
+                if (saveBtn) {
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = `<span>Save Notes</span>`;
+                }
+            }
         }
 
         // Initialize & Auto Poll every 3 seconds

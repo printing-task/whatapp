@@ -574,3 +574,161 @@ def delete_contact(phone_number: str):
     except Exception as e:
         print(f"[DB] Error deleting contact: {e}")
         return False
+
+def get_contact_profile(phone_number: str):
+    """Retrieve full customer profile, 24h window status, statistics, exchanged media, and bookings."""
+    try:
+        init_db()
+        conn = get_connection()
+        cursor = conn.cursor()
+        clean = str(phone_number).replace("+", "").strip()
+
+        # 1. Contact Settings
+        cursor.execute("""
+            SELECT * FROM contact_settings 
+            WHERE phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ?
+            LIMIT 1
+        """, (phone_number, f"+{clean}", clean))
+        cs_row = cursor.fetchone()
+        cs = dict(cs_row) if cs_row else {"bot_enabled": 1, "tags": "Customer", "notes": "", "assigned_agent": "Support Team"}
+
+        # 2. Latest Name and Channel from messages
+        cursor.execute("""
+            SELECT sender_name, channel, created_at, direction 
+            FROM messages 
+            WHERE phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ?
+            ORDER BY id DESC LIMIT 1
+        """, (phone_number, f"+{clean}", clean))
+        latest_msg = cursor.fetchone()
+
+        # Inbound name preferred
+        cursor.execute("""
+            SELECT sender_name FROM messages 
+            WHERE (phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ?) 
+              AND direction = 'inbound' 
+            ORDER BY id DESC LIMIT 1
+        """, (phone_number, f"+{clean}", clean))
+        in_name = cursor.fetchone()
+
+        # 3. Message Stats
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total_messages,
+                SUM(CASE WHEN direction = 'inbound' THEN 1 ELSE 0 END) as inbound_messages,
+                SUM(CASE WHEN direction = 'outbound' THEN 1 ELSE 0 END) as outbound_messages,
+                MIN(created_at) as first_seen,
+                MAX(created_at) as last_seen
+            FROM messages 
+            WHERE phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ?
+        """, (phone_number, f"+{clean}", clean))
+        stats_row = cursor.fetchone()
+        stats = dict(stats_row) if stats_row else {}
+
+        # 4. Last Inbound for 24h Free Window
+        cursor.execute("""
+            SELECT created_at FROM messages 
+            WHERE (phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ?) 
+              AND direction = 'inbound' 
+            ORDER BY id DESC LIMIT 1
+        """, (phone_number, f"+{clean}", clean))
+        last_in_row = cursor.fetchone()
+        last_in = last_in_row["created_at"] if last_in_row else None
+
+        is_free_active = False
+        seconds_left = 0
+        if last_in:
+            try:
+                now_utc = datetime.now(timezone.utc)
+                dt_str = str(last_in).replace(" ", "T")
+                if not dt_str.endswith("Z") and "+" not in dt_str:
+                    dt_str += "Z"
+                in_dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                elapsed = (now_utc - in_dt).total_seconds()
+                rem = 86400 - elapsed
+                if rem > 0:
+                    is_free_active = True
+                    seconds_left = int(rem)
+            except Exception:
+                pass
+
+        # 5. Media attachments
+        cursor.execute("""
+            SELECT id, media_type, media_url, media_filename, direction, created_at 
+            FROM messages 
+            WHERE (phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ?) 
+              AND media_url IS NOT NULL AND media_url != ''
+            ORDER BY id DESC LIMIT 30
+        """, (phone_number, f"+{clean}", clean))
+        media_rows = cursor.fetchall()
+        media_list = [dict(m) for m in media_rows]
+
+        # 6. Bookings
+        cursor.execute("""
+            SELECT * FROM bookings 
+            WHERE phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ?
+            ORDER BY id DESC
+        """, (phone_number, f"+{clean}", clean))
+        booking_rows = cursor.fetchall()
+        bookings_list = [dict(b) for b in booking_rows]
+
+        conn.close()
+
+        sender_name = (in_name["sender_name"] if in_name and in_name["sender_name"] else (latest_msg["sender_name"] if latest_msg else "Customer")) or "Customer"
+        channel = (latest_msg["channel"] if latest_msg else "meta_whatsapp") or "meta_whatsapp"
+
+        return {
+            "phone_number": phone_number,
+            "sender_name": sender_name,
+            "channel": channel,
+            "bot_enabled": cs.get("bot_enabled", 1) != 0,
+            "tags": cs.get("tags") or "Customer",
+            "notes": cs.get("notes") or "",
+            "assigned_agent": cs.get("assigned_agent") or "Support Team",
+            "is_free_window_active": is_free_active,
+            "free_window_seconds_left": seconds_left,
+            "last_inbound_time": last_in,
+            "stats": stats,
+            "media": media_list,
+            "bookings": bookings_list
+        }
+    except Exception as e:
+        print(f"[DB] Error getting contact profile: {e}")
+        return None
+
+def update_contact_profile(phone_number: str, notes: str = None, tags: str = None, assigned_agent: str = None):
+    """Update contact tags, notes, and assigned support agent."""
+    try:
+        init_db()
+        conn = get_connection()
+        cursor = conn.cursor()
+        clean = str(phone_number).replace("+", "").strip()
+
+        cursor.execute("SELECT * FROM contact_settings WHERE REPLACE(phone_number, '+', '') = ?", (clean,))
+        row = cursor.fetchone()
+        if row:
+            updates = []
+            vals = []
+            if notes is not None:
+                updates.append("notes = ?")
+                vals.append(notes)
+            if tags is not None:
+                updates.append("tags = ?")
+                vals.append(tags)
+            if assigned_agent is not None:
+                updates.append("assigned_agent = ?")
+                vals.append(assigned_agent)
+            if updates:
+                vals.append(row["phone_number"])
+                cursor.execute(f"UPDATE contact_settings SET {', '.join(updates)} WHERE phone_number = ?", vals)
+        else:
+            cursor.execute("""
+                INSERT INTO contact_settings (phone_number, bot_enabled, assigned_agent, tags, notes)
+                VALUES (?, 1, ?, ?, ?)
+            """, (phone_number, assigned_agent or "Support Team", tags or "Customer", notes or ""))
+
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"[DB] Error updating contact profile: {e}")
+        return False

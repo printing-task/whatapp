@@ -311,6 +311,29 @@ async def toggle_contact_bot(request: Request):
     success = db.set_bot_enabled_for_contact(phone, enabled)
     return JSONResponse({"success": success, "phone": phone, "bot_enabled": enabled})
 
+@app.get("/api/dashboard/contact/profile")
+async def get_contact_profile_endpoint(phone: str = Query(...)):
+    """Retrieve full customer profile, 24h window, stats, bookings, and media gallery."""
+    profile = db.get_contact_profile(phone)
+    if not profile:
+        return JSONResponse({"error": "Contact not found"}, status_code=404)
+    return JSONResponse(profile)
+
+@app.post("/api/dashboard/contact/profile")
+async def update_contact_profile_endpoint(request: Request):
+    """Update contact notes, tags, and assigned support agent."""
+    data = await request.json()
+    phone = data.get("phone", "")
+    if not phone:
+        return JSONResponse({"error": "Phone number is required"}, status_code=400)
+    success = db.update_contact_profile(
+        phone_number=phone,
+        notes=data.get("notes"),
+        tags=data.get("tags"),
+        assigned_agent=data.get("assigned_agent")
+    )
+    return JSONResponse({"success": success})
+
 @app.get("/api/dashboard/bookings")
 async def get_bookings():
     bookings = db.get_bookings()

@@ -273,12 +273,15 @@
                         <button id="mobile-back-btn" type="button" onclick="showMobileList()" class="md:hidden p-1.5 -ml-1 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition" title="Back to conversations">
                             <i class="fas fa-arrow-left text-base"></i>
                         </button>
-                        <div id="active-avatar" class="w-9 h-9 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold shadow-sm text-xs flex-shrink-0">
+                        <div id="active-avatar" onclick="openContactProfileModal()" class="w-9 h-9 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold shadow-sm text-xs flex-shrink-0 cursor-pointer hover:ring-2 hover:ring-emerald-400 hover:scale-105 transition" title="Click icon to view customer info & photos">
                             <i class="fas fa-user"></i>
                         </div>
                         <div class="min-w-0">
                             <div class="flex items-center space-x-2">
-                                <h2 id="active-name" class="text-sm font-extrabold text-slate-900 leading-tight truncate">Select a Customer Chat</h2>
+                                <h2 id="active-name" onclick="openContactProfileModal()" class="text-sm font-extrabold text-slate-900 leading-tight truncate cursor-pointer hover:text-emerald-700 transition" title="Click to view customer details">Select a Customer Chat</h2>
+                                <button type="button" onclick="openContactProfileModal()" class="text-slate-400 hover:text-emerald-600 text-xs transition" title="View Customer Information">
+                                    <i class="fas fa-circle-info"></i>
+                                </button>
                                 <span id="active-channel-badge" class="hidden sm:inline-block text-[9px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 border border-slate-200 font-mono font-bold hidden">WhatsApp</span>
                             </div>
                             <div class="flex items-center flex-wrap gap-1.5 mt-0.5">
@@ -1068,6 +1071,144 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: CUSTOMER PROFILE & INFORMATION ================= -->
+    <div id="contact-profile-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <!-- Modal Header -->
+            <div class="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/70 flex-shrink-0">
+                <div class="flex items-center space-x-3.5 min-w-0">
+                    <div id="prof-avatar" class="w-12 h-12 rounded-2xl bg-emerald-600 text-white font-extrabold flex items-center justify-center text-lg shadow-md flex-shrink-0">
+                        N
+                    </div>
+                    <div class="min-w-0">
+                        <div class="flex items-center space-x-2">
+                            <h3 id="prof-name" class="font-extrabold text-slate-900 text-base truncate">Customer</h3>
+                            <span id="prof-channel-badge" class="text-[9px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 font-mono font-bold uppercase">Meta WhatsApp</span>
+                        </div>
+                        <div class="flex items-center space-x-2 mt-0.5">
+                            <span id="prof-phone" class="text-xs font-mono font-bold text-emerald-700">Phone</span>
+                            <button type="button" onclick="copyContactPhone()" title="Copy Phone Number" class="text-slate-400 hover:text-slate-600 p-0.5">
+                                <i class="far fa-copy text-xs"></i>
+                            </button>
+                            <a id="prof-wa-link" href="#" target="_blank" class="text-[10px] text-emerald-600 hover:underline flex items-center space-x-0.5 font-bold" title="Open in WhatsApp">
+                                <i class="fab fa-whatsapp"></i><span>Chat</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                <button type="button" onclick="closeContactProfileModal()" class="w-8 h-8 rounded-full bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition border border-slate-200">
+                    <i class="fas fa-times text-xs"></i>
+                </button>
+            </div>
+
+            <!-- Modal Body (Scrollable) -->
+            <div class="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+                <!-- 24-Hour Free Service Window Status Banner -->
+                <div id="prof-window-box" class="p-3 rounded-2xl border flex items-center justify-between">
+                    <!-- Injected dynamically -->
+                </div>
+
+                <!-- Bot Automation Switch -->
+                <div class="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-center justify-between">
+                    <div>
+                        <span class="font-bold text-slate-800 block text-xs">AI Support Bot Automation</span>
+                        <p id="prof-bot-desc" class="text-[11px] text-slate-500 mt-0.5">AI automatically replies to incoming questions from this customer</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer" title="Toggle AI Bot">
+                        <input type="checkbox" id="prof-bot-toggle" onchange="toggleContactBotFromProfile(this.checked)" class="sr-only peer" checked>
+                        <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                </div>
+
+                <!-- Message Statistics Grid -->
+                <div class="grid grid-cols-3 gap-2.5">
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                        <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total Messages</span>
+                        <span id="prof-stat-total" class="text-base font-extrabold text-slate-900 mt-0.5 block">0</span>
+                        <div class="flex items-center justify-center space-x-1.5 text-[10px] text-slate-500 font-mono mt-0.5">
+                            <span class="text-emerald-600"><span id="prof-stat-in">0</span> in</span>
+                            <span>•</span>
+                            <span class="text-teal-600"><span id="prof-stat-out">0</span> out</span>
+                        </div>
+                    </div>
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                        <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">First Seen</span>
+                        <span id="prof-stat-first" class="text-xs font-bold text-slate-800 mt-1 block truncate">Recently</span>
+                        <span class="text-[10px] text-slate-400">Initial Inquiry</span>
+                    </div>
+                    <div class="p-3 rounded-xl bg-slate-50 border border-slate-200 text-center">
+                        <span class="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Last Active</span>
+                        <span id="prof-stat-last" class="text-xs font-bold text-emerald-700 mt-1 block truncate">Just now</span>
+                        <span class="text-[10px] text-slate-400">Latest message</span>
+                    </div>
+                </div>
+
+                <!-- Exchanged Photos & Documents Gallery -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="font-extrabold text-slate-800 text-xs flex items-center space-x-1.5">
+                            <i class="fas fa-images text-emerald-600"></i>
+                            <span>Exchanged Photos & Files (<span id="prof-media-count">0</span>)</span>
+                        </span>
+                    </div>
+                    <div id="prof-media-gallery" class="grid grid-cols-4 gap-2">
+                        <!-- Thumbnails injected dynamically -->
+                    </div>
+                </div>
+
+                <!-- Appointments / Bookings -->
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <span class="font-extrabold text-slate-800 text-xs flex items-center space-x-1.5">
+                            <i class="fas fa-calendar-check text-amber-500"></i>
+                            <span>Appointments & Bookings (<span id="prof-bookings-count">0</span>)</span>
+                        </span>
+                        <button type="button" onclick="openAddBookingModalForContact()" class="text-amber-600 hover:text-amber-700 font-bold text-[11px] hover:underline flex items-center space-x-1">
+                            <i class="fas fa-plus text-[9px]"></i><span>Add Booking</span>
+                        </button>
+                    </div>
+                    <div id="prof-bookings-list" class="space-y-1.5">
+                        <!-- Bookings list injected dynamically -->
+                    </div>
+                </div>
+
+                <!-- Customer Tags & Internal Notes -->
+                <div class="space-y-2 pt-1 border-t border-slate-100">
+                    <span class="font-extrabold text-slate-800 text-xs flex items-center space-x-1.5">
+                        <i class="fas fa-sticky-note text-purple-600"></i>
+                        <span>Customer Tags & Internal Notes</span>
+                    </span>
+                    <div class="space-y-2">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Tags (comma separated):</label>
+                            <input type="text" id="prof-tags-input" placeholder="e.g. VIP Customer, Visiting Cards, Regular Lead" class="w-full bg-slate-50 text-slate-800 px-3 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-purple-500 text-xs" />
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Internal Notes (private):</label>
+                            <textarea id="prof-notes-input" rows="2" placeholder="Add private notes about customer preferences, order details, printing specs..." class="w-full bg-slate-50 text-slate-800 p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:border-purple-500 text-xs"></textarea>
+                        </div>
+                        <div class="flex items-center justify-between pt-1">
+                            <span id="prof-save-status" class="text-[10px] text-emerald-600 font-bold hidden"><i class="fas fa-check mr-1"></i>Saved!</span>
+                            <button type="button" onclick="saveContactProfileNotes()" id="prof-save-btn" class="ml-auto px-4 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs transition">
+                                <span>Save Notes</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-3.5 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between flex-shrink-0">
+                <button type="button" onclick="openPromoModal('current'); closeContactProfileModal();" class="px-3.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-xs border border-purple-200 transition flex items-center space-x-1.5">
+                    <i class="fas fa-gift"></i><span>Send Promo Offer</span>
+                </button>
+                <button type="button" onclick="closeContactProfileModal()" class="px-4 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs transition">
+                    Close
+                </button>
+            </div>
         </div>
     </div>
 
