@@ -2,7 +2,7 @@ import os
 import sqlite3
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Database path
 DB_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -269,6 +269,7 @@ def get_conversations():
                 m1.direction as last_direction,
                 m1.channel as last_channel,
                 m1.created_at as last_time,
+                (SELECT m_in2.created_at FROM messages m_in2 WHERE REPLACE(m_in2.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '') AND m_in2.direction = 'inbound' ORDER BY m_in2.id DESC LIMIT 1) as last_inbound_time,
                 (SELECT COUNT(*) FROM messages m2 WHERE REPLACE(m2.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '')) as total_messages,
                 (SELECT COUNT(*) FROM messages m3 WHERE REPLACE(m3.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '') AND m3.direction = 'inbound') as inbound_count,
                 COALESCE((SELECT cs.bot_enabled FROM contact_settings cs WHERE REPLACE(cs.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '') LIMIT 1), 1) as bot_enabled
@@ -281,7 +282,34 @@ def get_conversations():
         cursor.execute(query)
         rows = cursor.fetchall()
         conn.close()
-        return [dict(row) for row in rows]
+
+        now_utc = datetime.now(timezone.utc)
+        results = []
+        for r in rows:
+            c = dict(r)
+            last_in = c.get("last_inbound_time")
+            if last_in:
+                try:
+                    dt_str = str(last_in).replace(" ", "T")
+                    if not dt_str.endswith("Z") and "+" not in dt_str:
+                        dt_str += "Z"
+                    in_dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+                    elapsed = (now_utc - in_dt).total_seconds()
+                    remaining = 86400 - elapsed
+                    if remaining > 0:
+                        c["is_free_window_active"] = True
+                        c["free_window_seconds_left"] = int(remaining)
+                    else:
+                        c["is_free_window_active"] = False
+                        c["free_window_seconds_left"] = 0
+                except Exception:
+                    c["is_free_window_active"] = False
+                    c["free_window_seconds_left"] = 0
+            else:
+                c["is_free_window_active"] = False
+                c["free_window_seconds_left"] = 0
+            results.append(c)
+        return results
     except Exception as e:
         print(f"[DB] Error getting conversations: {e}")
         return []
@@ -428,6 +456,15 @@ def get_stats():
         today_str = datetime.utcnow().strftime("%Y-%m-%d")
         cursor.execute("SELECT COUNT(*) as today_total FROM messages WHERE created_at LIKE ?", (f"{today_str}%",))
         today_messages = cursor.fetchone()["today_total"]
+
+        # Active 24-hour Free Customer Service Windows (Eligible for ₹0 promotional messaging)
+        cursor.execute("""
+            SELECT COUNT(DISTINCT REPLACE(phone_number, '+', '')) as active_windows
+            FROM messages
+            WHERE direction = 'inbound'
+              AND created_at >= datetime('now', '-24 hours')
+        """)
+        active_free_windows = cursor.fetchone()["active_windows"]
         
         conn.close()
         return {
@@ -438,12 +475,14 @@ def get_stats():
             "avg_latency_ms": avg_latency,
             "total_webhooks": total_webhooks,
             "total_bookings": total_bookings,
-            "today_messages": today_messages
+            "today_messages": today_messages,
+            "active_free_windows": active_free_windows
         }
     except Exception as e:
         return {
             "total_messages": 0, "total_contacts": 0, "inbound_messages": 0, "outbound_messages": 0,
-            "avg_latency_ms": 0, "total_webhooks": 0, "total_bookings": 0, "today_messages": 0
+            "avg_latency_ms": 0, "total_webhooks": 0, "total_bookings": 0, "today_messages": 0,
+            "active_free_windows": 0
         }
 
 def save_webhook_log(endpoint: str, method: str, payload: any = None, status_code: int = 200, ip_address: str = ""):

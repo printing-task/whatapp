@@ -238,6 +238,26 @@
                         <input type="text" id="search-input" oninput="filterConversations()" placeholder="Search by customer name, phone, message..."
                                class="w-full bg-slate-50 text-xs text-slate-800 placeholder-slate-400 pl-9 pr-3.5 py-2 rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500 focus:bg-white transition" />
                     </div>
+
+                    <!-- 24-HOUR FREE SERVICE WINDOW FILTERS & BROADCAST ACTION -->
+                    <div class="space-y-1.5 pt-1">
+                        <div class="flex items-center space-x-1 text-[11px] font-semibold">
+                            <button type="button" onclick="setWindowFilter('all')" id="filter-btn-all" class="flex-1 py-1 px-1.5 rounded-lg bg-emerald-600 text-white font-bold text-center transition">
+                                All (<span id="count-filter-all">0</span>)
+                            </button>
+                            <button type="button" onclick="setWindowFilter('active')" id="filter-btn-active" class="flex-1 py-1 px-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-center transition flex items-center justify-center space-x-1" title="Filter customers with active 24-hour free service window">
+                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                <span>Free (<span id="count-filter-active">0</span>)</span>
+                            </button>
+                            <button type="button" onclick="setWindowFilter('expired')" id="filter-btn-expired" class="flex-1 py-1 px-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-center transition" title="Filter customers whose 24-hour window has expired">
+                                Expired (<span id="count-filter-expired">0</span>)
+                            </button>
+                        </div>
+                        <button type="button" onclick="openPromoModal('broadcast')" class="w-full py-1.5 px-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-[11px] font-bold flex items-center justify-center space-x-1.5 shadow-xs transition" title="Send a promotional offer to all customers currently in their free 24h window for ₹0">
+                            <i class="fas fa-bullhorn text-xs"></i>
+                            <span>Send Promo Offer (₹0 Meta Fee)</span>
+                        </button>
+                    </div>
                 </div>
                 <div id="conversations-container" class="flex-1 min-h-0 overflow-y-auto divide-y divide-slate-100">
                     <div class="p-8 text-center text-slate-400 text-xs">Loading customer chats...</div>
@@ -261,7 +281,10 @@
                                 <h2 id="active-name" class="text-sm font-extrabold text-slate-900 leading-tight truncate">Select a Customer Chat</h2>
                                 <span id="active-channel-badge" class="hidden sm:inline-block text-[9px] px-1.5 py-0.2 rounded-full bg-slate-100 text-slate-600 border border-slate-200 font-mono font-bold hidden">WhatsApp</span>
                             </div>
-                            <p id="active-phone" class="text-xs text-emerald-600 font-mono font-medium truncate">No active conversation</p>
+                            <div class="flex items-center flex-wrap gap-1.5 mt-0.5">
+                                <p id="active-phone" class="text-xs text-emerald-600 font-mono font-medium truncate">No active conversation</p>
+                                <div id="chat-window-badge" class="hidden"></div>
+                            </div>
                         </div>
                     </div>
 
@@ -298,6 +321,9 @@
                             </button>
                             <button id="book-lead-btn" onclick="openBookCurrentContactModal()" title="Convert to Booking" class="hidden flex px-2.5 py-1 text-xs text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition font-bold items-center space-x-1">
                                 <i class="fas fa-calendar-plus mr-1"></i> Add Booking
+                            </button>
+                            <button id="send-promo-btn" onclick="openPromoModal('current')" title="Send promotional offer to this customer" class="hidden flex px-2.5 py-1 text-xs text-purple-700 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-lg transition font-bold items-center space-x-1">
+                                <i class="fas fa-gift text-purple-600"></i><span>Promo Offer</span>
                             </button>
                             <button id="delete-chat-btn" onclick="deleteCurrentChat()" title="Delete entire conversation" class="hidden flex px-2.5 py-1 text-xs text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition font-bold items-center space-x-1">
                                 <i class="fas fa-trash text-[10px]"></i><span>Delete Chat</span>
@@ -377,6 +403,9 @@
                                 </button>
                                 <button type="button" onclick="openBookingFromMenu()" class="w-full text-left px-3.5 py-2.5 hover:bg-amber-50 text-slate-700 hover:text-amber-700 flex items-center space-x-2.5 transition font-semibold">
                                     <i class="fas fa-calendar-plus text-amber-500 text-sm w-4 text-center"></i><span>Convert to Booking</span>
+                                </button>
+                                <button type="button" onclick="closeChatActionsMenu(); openPromoModal('current');" class="w-full text-left px-3.5 py-2.5 hover:bg-purple-50 text-slate-700 hover:text-purple-700 flex items-center space-x-2.5 transition font-semibold">
+                                    <i class="fas fa-gift text-purple-600 text-sm w-4 text-center"></i><span>Send Promo Offer</span>
                                 </button>
 
                                 <div class="border-t border-slate-100 my-1"></div>
@@ -458,7 +487,7 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 flex-shrink-0">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5 flex-shrink-0">
                 <div class="bg-gradient-to-br from-slate-50 to-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-xs">
                     <div>
                         <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Messages</span>
@@ -480,6 +509,19 @@
                     </div>
                     <div class="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center text-xl font-bold">
                         <i class="fas fa-users"></i>
+                    </div>
+                </div>
+                <div class="bg-gradient-to-br from-emerald-50 via-teal-50 to-white border border-emerald-200 rounded-2xl p-4 flex items-center justify-between shadow-xs cursor-pointer hover:border-emerald-400 transition" onclick="switchTab('chats'); setWindowFilter('active');" title="Customers with open 24h service window - Eligible for ₹0 promotional messaging">
+                    <div>
+                        <span class="text-[10px] font-bold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
+                            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>24h Free Windows</span>
+                        </span>
+                        <h3 id="stat-active-windows" class="text-2xl font-extrabold text-emerald-800 mt-1">0</h3>
+                        <p class="text-xs text-emerald-600 font-semibold mt-1 hover:underline">Send ₹0 Offers →</p>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-xl font-bold">
+                        <i class="fas fa-bullhorn"></i>
                     </div>
                 </div>
                 <div class="bg-gradient-to-br from-slate-50 to-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-xs cursor-pointer hover:border-amber-400 transition" onclick="switchTab('bookings')">
@@ -938,6 +980,92 @@
                 <div class="flex items-center justify-end space-x-2.5 pt-3.5 border-t border-slate-100">
                     <button type="button" onclick="closeBookingModal()" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold">Cancel</button>
                     <button type="submit" class="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold">Save Booking</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ================= MODAL: PROMOTIONAL OFFER & FREE WINDOW BROADCAST ================= -->
+    <div id="promo-broadcast-modal" class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        <div class="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between pb-3.5 border-b border-slate-100">
+                <div class="flex items-center space-x-2.5">
+                    <div class="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 to-pink-500 text-white flex items-center justify-center text-lg shadow-md shadow-purple-500/20">
+                        <i class="fas fa-bullhorn"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-extrabold text-slate-900 text-base flex items-center gap-1.5">
+                            <span>Promotional Offer Sender</span>
+                            <span class="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">₹0 Meta Fee</span>
+                        </h3>
+                        <p class="text-xs text-slate-500">Send offers to customers within their 24h free service window</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closePromoModal()" class="text-slate-400 hover:text-slate-700 p-1"><i class="fas fa-times text-base"></i></button>
+            </div>
+
+            <form onsubmit="handleSendPromoSubmit(event)" class="space-y-4 mt-4 text-xs">
+                <!-- Target Recipient -->
+                <div>
+                    <label class="block text-slate-700 font-bold mb-1.5">Send Offer To:</label>
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex items-start space-x-2 p-2.5 rounded-xl border border-slate-200 hover:border-purple-400 bg-slate-50 cursor-pointer transition">
+                            <input type="radio" name="promo_target" id="promo-target-current" value="current" checked class="mt-0.5 text-purple-600 focus:ring-0">
+                            <div>
+                                <span class="font-bold text-slate-800 block">Current Customer</span>
+                                <span id="promo-current-name-label" class="text-[10px] text-slate-500 truncate block">Selected Contact</span>
+                            </div>
+                        </label>
+                        <label class="flex items-start space-x-2 p-2.5 rounded-xl border border-slate-200 hover:border-purple-400 bg-slate-50 cursor-pointer transition">
+                            <input type="radio" name="promo_target" id="promo-target-all" value="all_active" class="mt-0.5 text-purple-600 focus:ring-0">
+                            <div>
+                                <span class="font-bold text-slate-800 block">All 24h Free Windows</span>
+                                <span class="text-[10px] text-emerald-600 font-bold block"><span id="promo-active-count-label">0</span> customers eligible</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Pre-made Offer Templates -->
+                <div>
+                    <label class="block text-slate-700 font-bold mb-1">Quick Offer Templates:</label>
+                    <div class="grid grid-cols-3 gap-1.5">
+                        <button type="button" onclick="applyPromoTemplate('discount')" class="p-2 text-left rounded-xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900 transition font-semibold">
+                            <div class="text-[11px] font-bold">🏷️ 20% Discount</div>
+                            <div class="text-[9px] text-purple-600 truncate">Store-wide offer</div>
+                        </button>
+                        <button type="button" onclick="applyPromoTemplate('cards')" class="p-2 text-left rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-900 transition font-semibold">
+                            <div class="text-[11px] font-bold">⚡ Visiting Cards</div>
+                            <div class="text-[9px] text-blue-600 truncate">₹199 Flash deal</div>
+                        </button>
+                        <button type="button" onclick="applyPromoTemplate('flyers')" class="p-2 text-left rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-900 transition font-semibold">
+                            <div class="text-[11px] font-bold">📄 Bulk Printing</div>
+                            <div class="text-[9px] text-amber-600 truncate">Flyers & standees</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Message Content -->
+                <div>
+                    <label class="block text-slate-700 font-bold mb-1">Promotional Message Text:</label>
+                    <textarea id="promo-message-input" rows="4" required class="w-full bg-slate-50 text-slate-900 p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-purple-500 font-sans text-xs leading-relaxed" placeholder="Type or choose a template above..."></textarea>
+                    <p class="text-[10px] text-slate-400 mt-1">Tip: Use <code class="text-purple-600 font-mono">{{name}}</code> to automatically insert customer name.</p>
+                </div>
+
+                <div class="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-between text-xs">
+                    <div class="flex items-center space-x-2 text-emerald-800">
+                        <i class="fas fa-shield-halved text-emerald-600 text-sm"></i>
+                        <span>Meta Fee for Active Window:</span>
+                    </div>
+                    <span class="font-extrabold text-emerald-700 font-mono">₹0.00 (100% Free)</span>
+                </div>
+
+                <div class="flex items-center justify-end space-x-2.5 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closePromoModal()" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold">Cancel</button>
+                    <button type="submit" id="promo-submit-btn" class="px-5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-bold flex items-center space-x-1.5 shadow-md shadow-purple-500/20">
+                        <i class="fas fa-paper-plane text-xs"></i>
+                        <span>Send Promo Now</span>
+                    </button>
                 </div>
             </form>
         </div>

@@ -478,6 +478,72 @@ async def send_dashboard_reply(request: Request):
         "latency_ms": latency_ms
     })
 
+@app.post("/api/dashboard/broadcast-promo")
+async def broadcast_promotional_message(request: Request):
+    """
+    Broadcast a promotional offer or message to customers with an active 24-hour free service window.
+    Saves ₹0 Meta fees since recipient service window is open!
+    """
+    data = await request.json()
+    message_text = (data.get("message") or "").strip()
+    target_phones = data.get("phones") or []
+    send_via_meta = data.get("send_via_meta", True)
+
+    if not message_text:
+        return JSONResponse({"error": "Message content cannot be empty"}, status_code=400)
+
+    # If no specific phones provided, target ALL customers whose 24h free window is active
+    if not target_phones or target_phones == "all_active":
+        convs = db.get_conversations()
+        target_phones = [c["phone_number"] for c in convs if c.get("is_free_window_active")]
+
+    if not target_phones:
+        return JSONResponse({
+            "success": False,
+            "error": "No customers with an active 24-hour free window found. Customers must message you first to open the free window."
+        }, status_code=400)
+
+    sent_count = 0
+    failed_count = 0
+    details = []
+
+    for phone in target_phones:
+        phone = str(phone).strip()
+        status = "sent"
+        meta_payload = {}
+        if send_via_meta:
+            success, meta_res = send_meta_whatsapp_message(phone, message_text)
+            status = "sent" if success else "failed"
+            meta_payload = {"meta_api_response": meta_res}
+            if success:
+                sent_count += 1
+            else:
+                failed_count += 1
+        else:
+            sent_count += 1
+
+        db.save_message(
+            phone_number=phone,
+            sender_name="printingtask Offers",
+            message=message_text,
+            direction="outbound",
+            channel="manual_admin",
+            status=status,
+            raw_payload=meta_payload,
+            ai_model="promo_broadcast"
+        )
+        # Pause bot temporarily so automated AI doesn't conflict with customer's reply to promo
+        db.set_bot_enabled_for_contact(phone, False)
+        details.append({"phone": phone, "status": status})
+
+    return JSONResponse({
+        "success": True,
+        "total_targets": len(target_phones),
+        "sent_count": sent_count,
+        "failed_count": failed_count,
+        "details": details
+    })
+
 @app.post("/api/dashboard/send-media")
 async def send_dashboard_media(
     phone: str = Form(...),

@@ -185,7 +185,29 @@ function deleteChatFromMenu() {
                     const data = await convsRes.json();
                     allConversations = data.conversations || [];
                     document.getElementById('chat-count').innerText = allConversations.length;
-                    renderConversations(allConversations);
+
+                    // Update 24h Free Window filter counts & badges
+                    const countAllEl = document.getElementById('count-filter-all');
+                    const countActiveEl = document.getElementById('count-filter-active');
+                    const countExpiredEl = document.getElementById('count-filter-expired');
+                    const activeCount = allConversations.filter(c => c.is_free_window_active).length;
+                    if (countAllEl) countAllEl.innerText = allConversations.length;
+                    if (countActiveEl) countActiveEl.innerText = activeCount;
+                    if (countExpiredEl) countExpiredEl.innerText = allConversations.length - activeCount;
+
+                    const statActiveWinsEl = document.getElementById('stat-active-windows');
+                    if (statActiveWinsEl) statActiveWinsEl.innerText = activeCount;
+
+                    const promoActiveCountLabel = document.getElementById('promo-active-count-label');
+                    if (promoActiveCountLabel) promoActiveCountLabel.innerText = activeCount;
+
+                    filterConversations();
+
+                    // Update current chat window badge if chat is open
+                    if (currentPhone) {
+                        const activeConv = allConversations.find(c => c.phone_number === currentPhone);
+                        updateChatWindowBadge(activeConv);
+                    }
 
                     // On desktop, auto-select first conversation. On mobile, let user see inbox first.
                     if (!currentPhone && allConversations.length > 0 && window.innerWidth >= 768) {
@@ -210,14 +232,48 @@ function deleteChatFromMenu() {
             }
         }
 
+        function formatWindowTime(seconds) {
+            if (!seconds || seconds <= 0) return 'Expired';
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            if (hrs > 0) return `${hrs}h ${mins}m`;
+            return `${mins}m`;
+        }
+
+        function updateChatWindowBadge(conv) {
+            const badgeEl = document.getElementById('chat-window-badge');
+            if (!badgeEl) return;
+            if (conv && conv.is_free_window_active && conv.free_window_seconds_left > 0) {
+                badgeEl.classList.remove('hidden');
+                badgeEl.innerHTML = `
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200" title="24h Free Customer Service Window Active: You can send promotional offers, quotes, or discounts for ₹0!">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
+                        <span>🟢 Free Promo Window: <strong class="ml-1">${formatWindowTime(conv.free_window_seconds_left)}</strong></span>
+                        <span class="ml-1 text-emerald-600 font-normal hidden sm:inline">(₹0 Meta Fee)</span>
+                    </span>
+                `;
+            } else if (conv && conv.inbound_count > 0) {
+                badgeEl.classList.remove('hidden');
+                badgeEl.innerHTML = `
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200" title="24-hour service window expired. Sending messages requires a paid Meta template or waiting for customer to message again.">
+                        <i class="fas fa-clock mr-1 text-slate-400 text-[9px]"></i>
+                        <span>24h Window Expired</span>
+                    </span>
+                `;
+            } else {
+                badgeEl.classList.add('hidden');
+                badgeEl.innerHTML = '';
+            }
+        }
+
         function renderConversations(list) {
             const container = document.getElementById('conversations-container');
             if (!list || list.length === 0) {
                 container.innerHTML = `
                     <div class="p-8 text-center text-slate-400 text-xs">
                         <i class="far fa-comments text-2xl mb-2 text-slate-300 block"></i>
-                        No conversations yet.<br/>
-                        <button onclick="openSimulateModal()" class="mt-2 text-emerald-600 font-bold hover:underline">Simulate customer message</button>
+                        No conversations found in this filter.<br/>
+                        <button onclick="setWindowFilter('all')" class="mt-2 text-emerald-600 font-bold hover:underline">View all conversations</button>
                     </div>
                 `;
                 return;
@@ -234,6 +290,13 @@ function deleteChatFromMenu() {
                     ? '<span class="text-[9px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.2 rounded" title="AI Bot is auto-replying">AI</span>'
                     : '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded" title="Human Agent (AI paused)">Agent</span>';
 
+                const isFreeActive = c.is_free_window_active && c.free_window_seconds_left > 0;
+                const windowBadge = isFreeActive
+                    ? `<span class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold px-1.5 py-0.2 rounded-full" title="24h Free Customer Service Window Active - Free to send promotional offers for ₹0"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>24h Free: ${formatWindowTime(c.free_window_seconds_left)}</span>`
+                    : (c.inbound_count > 0
+                        ? `<span class="inline-flex items-center text-[9px] bg-slate-100 text-slate-400 font-medium px-1.5 py-0.2 rounded" title="24h window expired - Meta requires paid template"><i class="fas fa-clock mr-0.5 text-[8px]"></i>Expired</span>`
+                        : '');
+
                 return `
                     <div onclick="selectChat('${c.phone_number}', '${escapeHtml(c.sender_name)}', '${c.last_channel}')" 
                          class="group p-3.5 cursor-pointer transition flex items-center space-x-3 ${activeClass}">
@@ -245,6 +308,7 @@ function deleteChatFromMenu() {
                                 <div class="flex items-center space-x-1.5 truncate">
                                     <h4 class="text-xs font-bold text-slate-900 truncate">${escapeHtml(c.sender_name || c.phone_number)}</h4>
                                     ${botBadge}
+                                    ${windowBadge}
                                 </div>
                                 <span class="text-[10px] text-slate-400 font-mono">${formatTime(c.last_time)}</span>
                             </div>
@@ -281,13 +345,18 @@ function deleteChatFromMenu() {
             document.getElementById('select-mode-btn')?.classList.remove('hidden');
             document.getElementById('delete-chat-btn')?.classList.remove('hidden');
             document.getElementById('book-lead-btn')?.classList.remove('hidden');
+            document.getElementById('send-promo-btn')?.classList.remove('hidden');
             document.getElementById('bot-toggle-container')?.classList.remove('hidden');
             document.getElementById('ai-reply-btn')?.classList.remove('hidden');
 
             const menuBtn = document.getElementById('chat-actions-menu-btn');
             if (menuBtn) menuBtn.classList.remove('hidden');
 
-            renderConversations(allConversations);
+            // Update chat header 24h free window badge
+            const conv = allConversations.find(x => x.phone_number === phone);
+            updateChatWindowBadge(conv);
+
+            filterConversations();
             showMobileChat();
             
             // Show instant loading feedback in messages pane
@@ -1156,8 +1225,11 @@ function deleteChatFromMenu() {
                         document.getElementById('select-mode-btn')?.classList.add('hidden');
                         document.getElementById('delete-chat-btn')?.classList.add('hidden');
                         document.getElementById('book-lead-btn')?.classList.add('hidden');
+                        document.getElementById('send-promo-btn')?.classList.add('hidden');
                         document.getElementById('bot-toggle-container')?.classList.add('hidden');
                         document.getElementById('ai-reply-btn')?.classList.add('hidden');
+                        const headerBadge = document.getElementById('chat-window-badge');
+                        if (headerBadge) { headerBadge.classList.add('hidden'); headerBadge.innerHTML = ''; }
                         const menuBtn = document.getElementById('chat-actions-menu-btn');
                         if (menuBtn) menuBtn.classList.add('hidden');
                         closeChatActionsMenu();
@@ -1179,14 +1251,190 @@ function deleteChatFromMenu() {
             fetchData(true);
         }
 
+        let currentWindowFilter = 'all'; // 'all', 'active', 'expired'
+
+        function setWindowFilter(filter) {
+            currentWindowFilter = filter;
+            const btnAll = document.getElementById('filter-btn-all');
+            const btnActive = document.getElementById('filter-btn-active');
+            const btnExpired = document.getElementById('filter-btn-expired');
+
+            const activeClass = 'flex-1 py-1 px-1.5 rounded-lg bg-emerald-600 text-white font-bold text-center transition';
+            const inactiveClass = 'flex-1 py-1 px-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-center transition';
+
+            if (btnAll) btnAll.className = filter === 'all' ? activeClass : inactiveClass;
+            if (btnActive) btnActive.className = filter === 'active' ? activeClass : (inactiveClass + ' flex items-center justify-center space-x-1');
+            if (btnExpired) btnExpired.className = filter === 'expired' ? activeClass : inactiveClass;
+
+            filterConversations();
+        }
+
         function filterConversations() {
-            const q = document.getElementById('search-input').value.toLowerCase();
-            const filtered = allConversations.filter(c => 
-                (c.phone_number && c.phone_number.toLowerCase().includes(q)) ||
-                (c.sender_name && c.sender_name.toLowerCase().includes(q)) ||
-                (c.last_message && c.last_message.toLowerCase().includes(q))
-            );
+            const searchEl = document.getElementById('search-input');
+            const q = searchEl ? searchEl.value.toLowerCase().trim() : '';
+
+            const filtered = allConversations.filter(c => {
+                if (currentWindowFilter === 'active' && !c.is_free_window_active) return false;
+                if (currentWindowFilter === 'expired' && c.is_free_window_active) return false;
+
+                if (!q) return true;
+                return (c.phone_number && c.phone_number.toLowerCase().includes(q)) ||
+                       (c.sender_name && c.sender_name.toLowerCase().includes(q)) ||
+                       (c.last_message && c.last_message.toLowerCase().includes(q));
+            });
             renderConversations(filtered);
+        }
+
+        // ====================================================================
+        // PROMOTIONAL OFFER & FREE WINDOW BROADCAST MODAL
+        // ====================================================================
+        function openPromoModal(targetMode = 'current') {
+            const modal = document.getElementById('promo-broadcast-modal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+
+            const currentRadio = document.getElementById('promo-target-current');
+            const allRadio = document.getElementById('promo-target-all');
+            const currentLabel = document.getElementById('promo-current-name-label');
+            const activeCountLabel = document.getElementById('promo-active-count-label');
+
+            const activeConvs = allConversations.filter(c => c.is_free_window_active);
+            if (activeCountLabel) activeCountLabel.innerText = activeConvs.length;
+
+            if (currentLabel) {
+                currentLabel.innerText = currentContactName ? `${currentContactName} (${currentPhone || ''})` : 'No customer selected';
+            }
+
+            if (targetMode === 'broadcast' || !currentPhone) {
+                if (allRadio) allRadio.checked = true;
+            } else {
+                if (currentRadio) currentRadio.checked = true;
+            }
+
+            const input = document.getElementById('promo-message-input');
+            if (input && !input.value.trim()) {
+                applyPromoTemplate('discount');
+            }
+        }
+
+        function closePromoModal() {
+            const modal = document.getElementById('promo-broadcast-modal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        const promoTemplates = {
+            discount: "Hello {{name}}! 🎉 As our valued customer, enjoy an exclusive 20% OFF on all your printing & binding orders with printingtask this week! Reply 'CLAIM' to avail this special offer today.",
+            cards: "Hi {{name}}! ⚡ Flash Deal today at printingtask: Get 1,000 Premium Matte Visiting Cards starting at just ₹499/- with free design check & express delivery. Reply here to place your order!",
+            flyers: "Hi {{name}}! 📄 Need high-impact marketing prints? We offer wholesale rates on HD Flyers, Booklets, Brochures, and Roll-up Standees. Reply with your quantities for an instant quote!"
+        };
+
+        function applyPromoTemplate(type) {
+            const tpl = promoTemplates[type];
+            const input = document.getElementById('promo-message-input');
+            if (tpl && input) {
+                input.value = tpl;
+                input.focus();
+            }
+        }
+
+        async function handleSendPromoSubmit(e) {
+            e.preventDefault();
+            const input = document.getElementById('promo-message-input');
+            const msg = input ? input.value.trim() : '';
+            if (!msg) {
+                alert("Please enter a promotional message to send.");
+                return;
+            }
+
+            const targetVal = document.querySelector('input[name="promo_target"]:checked')?.value || 'current';
+            const submitBtn = document.getElementById('promo-submit-btn');
+
+            if (targetVal === 'current') {
+                if (!currentPhone) {
+                    alert("Please select a customer first or choose 'All 24h Free Windows'.");
+                    return;
+                }
+                const personalizedMsg = msg.replace(/\{\{name\}\}/g, currentContactName || 'Customer');
+
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i> Sending Promo...`;
+                }
+
+                try {
+                    const res = await fetch('/api/dashboard/send', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            phone: currentPhone,
+                            name: currentContactName,
+                            message: personalizedMsg,
+                            role: 'agent',
+                            send_via_meta: true
+                        })
+                    });
+
+                    if (res.ok) {
+                        closePromoModal();
+                        alert(`🎉 Promotional offer sent to ${currentContactName || currentPhone} for ₹0!`);
+                        await fetchData(true);
+                    } else {
+                        const err = await res.json();
+                        alert("Error sending promo: " + (err.error || 'Server error'));
+                    }
+                } catch (err) {
+                    alert("Network error: " + err.message);
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = `<i class="fas fa-paper-plane text-xs"></i> <span>Send Promo Now</span>`;
+                    }
+                }
+            } else {
+                const activeConvs = allConversations.filter(c => c.is_free_window_active);
+                if (activeConvs.length === 0) {
+                    alert("No customers with an active 24-hour free window right now. Customers must message you first to activate the free window.");
+                    return;
+                }
+
+                if (!confirm(`Broadcast this promotional offer to ${activeConvs.length} customer(s) in their 24h free window for ₹0 Meta fees?`)) {
+                    return;
+                }
+
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i> Broadcasting (${activeConvs.length})...`;
+                }
+
+                try {
+                    const res = await fetch('/api/dashboard/broadcast-promo', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            message: msg,
+                            phones: "all_active",
+                            send_via_meta: true
+                        })
+                    });
+
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        closePromoModal();
+                        const moneySaved = (data.sent_count * 0.80).toFixed(2);
+                        alert(`🚀 Broadcast complete! Sent offer to ${data.sent_count} active customers.\n💰 Meta Fee Saved: ~₹${moneySaved} (100% Free)`);
+                        await fetchData(true);
+                    } else {
+                        alert("Broadcast error: " + (data.error || 'Failed to send broadcast'));
+                    }
+                } catch (err) {
+                    alert("Network error: " + err.message);
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = `<i class="fas fa-paper-plane text-xs"></i> <span>Send Promo Now</span>`;
+                    }
+                }
+            }
         }
 
         function formatTime(isoStr) {
