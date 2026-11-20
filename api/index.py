@@ -136,6 +136,37 @@ async def handle_meta_webhook(request: Request):
                 contacts = val.get("contacts", [])
                 sender_name = contacts[0].get("profile", {}).get("name", "Customer") if contacts else "Customer"
                 
+                # 1. PROCESS STATUSES (DELIVERY RECEIPTS, 24-HOUR CONVERSATION TRACKING & PRICING METADATA)
+                for status in val.get("statuses", []):
+                    recipient_id = status.get("recipient_id")
+                    st_status = status.get("status")
+                    wamid = status.get("id")
+                    conv = status.get("conversation", {})
+                    pricing = status.get("pricing", {})
+                    
+                    if wamid and st_status:
+                        db.update_message_status_by_wamid(wamid, st_status)
+                        
+                    if recipient_id and conv:
+                        meta_conv_id = conv.get("id")
+                        exp_ts = conv.get("expiration_timestamp")
+                        try:
+                            exp_ts = int(exp_ts) if exp_ts else None
+                        except Exception:
+                            exp_ts = None
+                        origin_type = conv.get("origin", {}).get("type", "service") if isinstance(conv.get("origin"), dict) else "service"
+                        pricing_category = pricing.get("category", origin_type) if isinstance(pricing, dict) else origin_type
+                        is_billable = 1 if (isinstance(pricing, dict) and pricing.get("billable")) else 0
+                        db.save_meta_conversation_status(
+                            phone_number=recipient_id,
+                            meta_conv_id=meta_conv_id,
+                            expiration_timestamp=exp_ts,
+                            origin_type=origin_type,
+                            pricing_category=pricing_category,
+                            is_billable=is_billable
+                        )
+                
+                # 2. PROCESS INBOUND MESSAGES
                 for msg in val.get("messages", []):
                     msg_type = msg.get("type")
                     if msg_type in ["text", "image", "document"]:
@@ -280,7 +311,21 @@ async def get_conversations():
 async def get_messages(phone: str = Query(None), limit: int = Query(200)):
     messages = db.get_messages(phone_number=phone, limit=limit)
     bot_enabled = db.is_bot_enabled_for_contact(phone) if phone else True
-    return JSONResponse({"messages": messages, "phone": phone, "bot_enabled": bot_enabled})
+    meta_conv = db.get_meta_conversation(phone) if phone else None
+    return JSONResponse({
+        "messages": messages,
+        "phone": phone,
+        "bot_enabled": bot_enabled,
+        "meta_conversation": meta_conv
+    })
+
+@app.get("/api/dashboard/context-window")
+async def get_context_window(phone: str = Query(...)):
+    """Retrieve active 24-hour Meta context window and conversation pricing details."""
+    conv_meta = db.get_meta_conversation(phone)
+    if not conv_meta:
+        return JSONResponse({"error": "No conversation record found"}, status_code=404)
+    return JSONResponse(conv_meta)
 
 @app.get("/api/dashboard/templates")
 async def get_templates():

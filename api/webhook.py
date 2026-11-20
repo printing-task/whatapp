@@ -98,6 +98,36 @@ async def receive_message(request: Request):
                 contacts = value.get("contacts", [])
                 sender_name = contacts[0].get("profile", {}).get("name", "Customer") if contacts else "Customer"
                 
+                # Process statuses (delivery receipts, 24-hour conversation tracking & pricing)
+                for status in value.get("statuses", []):
+                    recipient_id = status.get("recipient_id")
+                    st_status = status.get("status")
+                    wamid = status.get("id")
+                    conv = status.get("conversation", {})
+                    pricing = status.get("pricing", {})
+                    
+                    if wamid and st_status:
+                        db.update_message_status_by_wamid(wamid, st_status)
+                        
+                    if recipient_id and conv:
+                        meta_conv_id = conv.get("id")
+                        exp_ts = conv.get("expiration_timestamp")
+                        try:
+                            exp_ts = int(exp_ts) if exp_ts else None
+                        except Exception:
+                            exp_ts = None
+                        origin_type = conv.get("origin", {}).get("type", "service") if isinstance(conv.get("origin"), dict) else "service"
+                        pricing_category = pricing.get("category", origin_type) if isinstance(pricing, dict) else origin_type
+                        is_billable = 1 if (isinstance(pricing, dict) and pricing.get("billable")) else 0
+                        db.save_meta_conversation_status(
+                            phone_number=recipient_id,
+                            meta_conv_id=meta_conv_id,
+                            expiration_timestamp=exp_ts,
+                            origin_type=origin_type,
+                            pricing_category=pricing_category,
+                            is_billable=is_billable
+                        )
+                
                 for msg in value.get("messages", []):
                     if msg.get("type") == "text":
                         sender = msg.get("from")

@@ -240,29 +240,135 @@ function deleteChatFromMenu() {
             return `${mins}m`;
         }
 
-        function updateChatWindowBadge(conv) {
+        let activeMetaConv = null;
+
+        function updateChatWindowBadge(conv, metaConv) {
             const badgeEl = document.getElementById('chat-window-badge');
-            if (!badgeEl) return;
-            if (conv && conv.is_free_window_active && conv.free_window_seconds_left > 0) {
-                badgeEl.classList.remove('hidden');
-                badgeEl.innerHTML = `
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200" title="24h Free Customer Service Window Active: You can send promotional offers, quotes, or discounts for ₹0!">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
-                        <span>🟢 Free Promo Window: <strong class="ml-1">${formatWindowTime(conv.free_window_seconds_left)}</strong></span>
-                        <span class="ml-1 text-emerald-600 font-normal hidden sm:inline">(₹0 Meta Fee)</span>
-                    </span>
-                `;
-            } else if (conv && conv.inbound_count > 0) {
-                badgeEl.classList.remove('hidden');
-                badgeEl.innerHTML = `
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200" title="24-hour service window expired. Sending messages requires a paid Meta template or waiting for customer to message again.">
-                        <i class="fas fa-clock mr-1 text-slate-400 text-[9px]"></i>
-                        <span>24h Window Expired</span>
-                    </span>
-                `;
-            } else {
-                badgeEl.classList.add('hidden');
-                badgeEl.innerHTML = '';
+            const bannerEl = document.getElementById('chat-context-window-banner');
+            const hintEl = document.getElementById('composer-window-hint');
+
+            const info = metaConv || conv || {};
+            const isActive = Boolean(info.is_free_window_active && info.free_window_seconds_left > 0);
+            const hasInbound = Boolean((info.inbound_count && info.inbound_count > 0) || info.last_inbound_time);
+            const secsLeft = Number(info.free_window_seconds_left || 0);
+            const remainingTime = formatWindowTime(secsLeft);
+            const category = (info.pricing_category || 'service').toUpperCase();
+            const isFreeTier = !info.is_billable;
+            const metaConvId = info.meta_conversation_id || (conv && conv.meta_conversation_id);
+
+            // 1. Header Badge
+            if (badgeEl) {
+                if (isActive) {
+                    badgeEl.classList.remove('hidden');
+                    badgeEl.innerHTML = `
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200" title="24h Free Context Window Active: You can send promotional offers, quotes, or replies for ₹0!">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
+                            <span>🟢 24h Free Window: <strong class="ml-1">${remainingTime}</strong></span>
+                            <span class="ml-1 text-emerald-600 font-normal hidden sm:inline">(₹0 Meta Fee)</span>
+                        </span>
+                    `;
+                } else if (hasInbound) {
+                    badgeEl.classList.remove('hidden');
+                    badgeEl.innerHTML = `
+                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500 border border-slate-200" title="24-hour service window expired. Sending messages requires an approved Meta template.">
+                            <i class="fas fa-clock mr-1 text-slate-400 text-[9px]"></i>
+                            <span>24h Window Expired</span>
+                        </span>
+                    `;
+                } else {
+                    badgeEl.classList.add('hidden');
+                    badgeEl.innerHTML = '';
+                }
+            }
+
+            // 2. Chat Context Window Banner (Directly under header)
+            if (bannerEl) {
+                if (isActive) {
+                    bannerEl.classList.remove('hidden');
+                    const convIdDisplay = metaConvId ? `<span class="text-[10px] text-emerald-800 font-mono ml-2 hidden sm:inline" title="Meta Conversation ID: ${escapeHtml(metaConvId)}">Meta ID: ${escapeHtml(metaConvId.substring(0, 16))}...</span>` : '';
+                    bannerEl.innerHTML = `
+                        <div class="px-3.5 py-2 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-b border-emerald-200 text-xs flex items-center justify-between shadow-xs">
+                            <div class="flex items-center space-x-2.5 min-w-0">
+                                <div class="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 shadow-xs">
+                                    <i class="fas fa-lock-open text-[11px]"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <div class="flex items-center space-x-1.5 flex-wrap">
+                                        <span class="font-extrabold text-emerald-950 text-xs">24-Hour Free Context Window OPEN</span>
+                                        <span class="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-200 text-emerald-900 uppercase tracking-tight">${isFreeTier ? '₹0 Free Tier' : category}</span>
+                                        ${convIdDisplay}
+                                    </div>
+                                    <p class="text-[11px] text-emerald-800 mt-0.5 truncate">
+                                        Free-form replies allowed • Time remaining: <strong class="font-mono font-extrabold text-emerald-950 ml-1" id="banner-countdown">${remainingTime}</strong>
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-1.5 flex-shrink-0 ml-2">
+                                <button type="button" onclick="openPromoModal('current')" class="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition flex items-center space-x-1" title="Send a free promotional offer or quote inside this 24h window">
+                                    <i class="fas fa-bullhorn text-[10px]"></i>
+                                    <span class="hidden sm:inline">Send Promo (₹0)</span>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                } else if (hasInbound) {
+                    bannerEl.classList.remove('hidden');
+                    bannerEl.innerHTML = `
+                        <div class="px-3.5 py-2 bg-slate-100/90 border-b border-slate-200 text-xs flex items-center justify-between shadow-xs">
+                            <div class="flex items-center space-x-2.5 min-w-0">
+                                <div class="w-7 h-7 rounded-lg bg-slate-300 text-slate-700 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                                    <i class="fas fa-lock text-[11px]"></i>
+                                </div>
+                                <div class="min-w-0">
+                                    <div class="flex items-center space-x-1.5 flex-wrap">
+                                        <span class="font-extrabold text-slate-800 text-xs">24-Hour Free Context Window EXPIRED</span>
+                                        <span class="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800 uppercase">Template Required</span>
+                                    </div>
+                                    <p class="text-[11px] text-slate-500 mt-0.5 truncate">
+                                        Meta restricts free-form messages outside 24h. Send an approved template or wait for customer to message.
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex items-center space-x-1.5 flex-shrink-0 ml-2">
+                                <button type="button" onclick="openTemplateSelectorModal()" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition flex items-center space-x-1" title="Select Meta-approved template">
+                                    <i class="fas fa-layer-group text-[10px]"></i>
+                                    <span>Send Template</span>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    bannerEl.classList.add('hidden');
+                    bannerEl.innerHTML = '';
+                }
+            }
+
+            // 3. Composer Window Hint (Above Reply Input Box)
+            if (hintEl) {
+                if (isActive) {
+                    hintEl.classList.remove('hidden');
+                    hintEl.className = 'mb-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold flex items-center justify-between bg-emerald-50 text-emerald-800 border border-emerald-200';
+                    hintEl.innerHTML = `
+                        <div class="flex items-center space-x-1.5 truncate">
+                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span class="truncate"><strong>24h Free Window Active:</strong> Free-form replies permitted at ₹0 Meta fees</span>
+                        </div>
+                        <span class="font-mono font-bold text-[10px] text-emerald-700 ml-2 flex-shrink-0">${remainingTime} left</span>
+                    `;
+                } else if (hasInbound) {
+                    hintEl.classList.remove('hidden');
+                    hintEl.className = 'mb-1.5 px-2.5 py-1 rounded-xl text-[11px] font-semibold flex items-center justify-between bg-amber-50 text-amber-800 border border-amber-200';
+                    hintEl.innerHTML = `
+                        <div class="flex items-center space-x-1.5 truncate">
+                            <i class="fas fa-triangle-exclamation text-amber-600 text-[10px]"></i>
+                            <span class="truncate"><strong>Window Expired:</strong> Meta charges for outbound templates outside 24h window</span>
+                        </div>
+                        <button type="button" onclick="openTemplateSelectorModal()" class="underline font-bold text-[10px] ml-2 flex-shrink-0 text-amber-800 hover:text-amber-900">Use Template</button>
+                    `;
+                } else {
+                    hintEl.classList.add('hidden');
+                    hintEl.innerHTML = '';
+                }
             }
         }
 
@@ -386,6 +492,11 @@ function deleteChatFromMenu() {
                         const agentRadio = document.getElementById('role-agent');
                         if (agentRadio) agentRadio.checked = true;
                     }
+                    if (data.meta_conversation) {
+                        activeMetaConv = data.meta_conversation;
+                        const activeConv = allConversations.find(c => c.phone_number === currentPhone);
+                        updateChatWindowBadge(activeConv, data.meta_conversation);
+                    }
                     renderMessages(data.messages || [], shouldScroll);
                 }
             } catch (e) {
@@ -451,11 +562,24 @@ function deleteChatFromMenu() {
 
             container.innerHTML = messages.map(m => {
                 const isOutbound = m.direction === 'outbound';
+                const isLatestInbound = !isOutbound && Boolean(m.is_latest_inbound);
                 const alignment = isOutbound ? 'justify-end' : 'justify-start';
-                const bubbleBg = isOutbound ? 'bg-[#d9fdd3] text-slate-900 border border-emerald-200/50 rounded-tr-sm' : 'bg-white text-slate-900 border border-slate-200/80 rounded-tl-sm';
+                const bubbleBg = isOutbound 
+                    ? 'bg-[#d9fdd3] text-slate-900 border border-emerald-200/50 rounded-tr-sm' 
+                    : (isLatestInbound 
+                        ? 'bg-gradient-to-br from-white via-emerald-50/60 to-white text-slate-900 border-2 border-emerald-500 shadow-md shadow-emerald-500/10 ring-2 ring-emerald-400/25 rounded-tl-sm' 
+                        : 'bg-white text-slate-900 border border-slate-200/80 rounded-tl-sm');
                 const senderLabel = isOutbound ? (m.sender_name || 'Support Agent') : escapeHtml(m.sender_name || 'Customer');
                 const engineTag = m.ai_model ? `<span class="text-[9px] px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded font-bold mr-1"><i class="fas fa-robot mr-1"></i>${escapeHtml(m.ai_model)}</span>` : '';
                 const triggerBtn = !isOutbound ? `<button onclick="triggerAiReplyForPrompt('${escapeHtml(m.message)}')" title="Generate AI Reply to this" class="ml-2 text-[10px] text-emerald-600 hover:text-emerald-800 font-bold underline"><i class="fas fa-wand-magic-sparkles mr-0.5"></i>AI Reply</button>` : '';
+
+                const windowRenewalBanner = isLatestInbound ? `
+                    <div class="flex items-center space-x-1.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-950 text-[10px] font-extrabold w-fit mb-1 border border-emerald-300 shadow-xs">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span>🟢 24h Free Context Window Renewed</span>
+                        <span class="text-emerald-700 font-semibold text-[9px] hidden sm:inline">• Free-Form Active (₹0 Fee)</span>
+                    </div>
+                ` : '';
 
                 const isChecked = selectedMessageIds.has(m.id);
                 const selectCheckbox = isSelectMode ? `
@@ -510,6 +634,7 @@ function deleteChatFromMenu() {
                                     ${singleDeleteBtn}
                                 </div>
                             </div>
+                            ${windowRenewalBanner}
                             ${mediaBlock}
                             ${m.message ? `<div class="whitespace-pre-wrap leading-relaxed text-[13px]">${escapeHtml(m.message)}</div>` : ''}
                             <div class="flex items-center justify-end space-x-1.5 pt-0.5 text-[10px] text-slate-500">
@@ -1512,34 +1637,44 @@ function deleteChatFromMenu() {
                 if (avatarEl) avatarEl.innerHTML = getInitials(p.sender_name || phone);
                 if (channelBadge) channelBadge.innerText = (p.channel || 'WHATSAPP').toUpperCase().replace('_', ' ');
 
-                // 24h Free Window banner
+                // 24h Free Context Window & Meta Pricing Details
                 const winBox = document.getElementById('prof-window-box');
                 if (winBox) {
+                    const meta = p.meta_conversation || {};
+                    const isMetaFree = !meta.is_billable;
+                    const cat = (meta.pricing_category || 'service').toUpperCase();
+                    const metaIdStr = meta.id ? `<span class="text-[10px] text-slate-500 font-mono block mt-0.5">Meta Conv ID: ${escapeHtml(meta.id)}</span>` : '';
+
                     if (p.is_free_window_active && p.free_window_seconds_left > 0) {
-                        winBox.className = "p-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 flex items-center justify-between";
+                        winBox.className = "p-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 flex items-center justify-between";
                         winBox.innerHTML = `
-                            <div class="flex items-center space-x-2.5">
+                            <div class="flex items-center space-x-2.5 min-w-0">
                                 <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse flex-shrink-0"></span>
-                                <div>
-                                    <span class="font-extrabold text-emerald-900 block text-xs">24h Free Promo Window Active</span>
-                                    <span class="text-[10px] text-emerald-700">Expires in <strong>${formatWindowTime(p.free_window_seconds_left)}</strong> • ₹0 Meta fee to send offers</span>
+                                <div class="min-w-0">
+                                    <div class="flex items-center space-x-1.5 flex-wrap">
+                                        <span class="font-extrabold text-emerald-950 block text-xs">24h Free Context Window Active</span>
+                                        <span class="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-emerald-200 text-emerald-900">${isMetaFree ? '₹0 Free Tier' : cat}</span>
+                                    </div>
+                                    <span class="text-[10px] text-emerald-700 block mt-0.5">Expires in <strong>${formatWindowTime(p.free_window_seconds_left)}</strong> • Unlimited Free-form replies</span>
+                                    ${metaIdStr}
                                 </div>
                             </div>
-                            <button type="button" onclick="openPromoModal('current'); closeContactProfileModal();" class="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition shadow-xs">
-                                Send Offer
+                            <button type="button" onclick="openPromoModal('current'); closeContactProfileModal();" class="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition shadow-xs flex-shrink-0 ml-2">
+                                Send Promo
                             </button>
                         `;
                     } else {
                         winBox.className = "p-3 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between";
                         winBox.innerHTML = `
-                            <div class="flex items-center space-x-2.5">
-                                <i class="fas fa-clock text-slate-400 text-sm"></i>
-                                <div>
-                                    <span class="font-bold text-slate-700 block text-xs">24h Service Window Expired</span>
-                                    <span class="text-[10px] text-slate-500">Wait for customer to reply or use paid Meta template</span>
+                            <div class="flex items-center space-x-2.5 min-w-0">
+                                <i class="fas fa-clock text-slate-400 text-sm flex-shrink-0"></i>
+                                <div class="min-w-0">
+                                    <span class="font-bold text-slate-700 block text-xs">24-Hour Context Window Expired</span>
+                                    <span class="text-[10px] text-slate-500 block">Wait for customer to reply or send approved Meta template</span>
+                                    ${metaIdStr}
                                 </div>
                             </div>
-                            <span class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold">Closed</span>
+                            <span class="px-2 py-0.5 rounded-full bg-slate-200 text-slate-600 text-[10px] font-bold flex-shrink-0 ml-2">Closed</span>
                         `;
                     }
                 }
