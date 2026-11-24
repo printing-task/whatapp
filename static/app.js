@@ -330,9 +330,9 @@ function deleteChatFromMenu() {
                                 </div>
                             </div>
                             <div class="flex items-center space-x-1.5 flex-shrink-0 ml-2">
-                                <button type="button" onclick="openTemplateSelectorModal()" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition flex items-center space-x-1" title="Select Meta-approved template">
-                                    <i class="fas fa-layer-group text-[10px]"></i>
-                                    <span>Send Template</span>
+                                <button type="button" onclick="openBulkSendModal()" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[11px] font-bold shadow-xs transition flex items-center space-x-1" title="Select users and send template">
+                                    <i class="fas fa-users text-[10px]"></i>
+                                    <span>Send Template (Select Users)</span>
                                 </button>
                             </div>
                         </div>
@@ -363,7 +363,7 @@ function deleteChatFromMenu() {
                             <i class="fas fa-triangle-exclamation text-amber-600 text-[10px]"></i>
                             <span class="truncate"><strong>Window Expired:</strong> Meta charges for outbound templates outside 24h window</span>
                         </div>
-                        <button type="button" onclick="openTemplateSelectorModal()" class="underline font-bold text-[10px] ml-2 flex-shrink-0 text-amber-800 hover:text-amber-900">Use Template</button>
+                        <button type="button" onclick="openBulkSendModal()" class="underline font-bold text-[10px] ml-2 flex-shrink-0 text-amber-800 hover:text-amber-900">Use Template (Select Users)</button>
                     `;
                 } else {
                     hintEl.classList.add('hidden');
@@ -848,9 +848,11 @@ function deleteChatFromMenu() {
 
         function renderQuickTemplates() {
             const bar = document.getElementById('quick-templates-bar');
+            if (!bar) return;
             bar.innerHTML = allTemplates.slice(0, 4).map(t => `
-                <button onclick="applyTemplate('${escapeHtml(t.content)}')" class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-medium border border-slate-200 flex-shrink-0 transition truncate max-w-[160px]">
-                    ${escapeHtml(t.title)}
+                <button type="button" onclick="openBulkSendModal(${t.id})" class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-semibold border border-blue-200 flex-shrink-0 transition truncate max-w-[160px] shadow-xs flex items-center space-x-1" title="Select users and send ${escapeHtml(t.title)}">
+                    <i class="fas fa-users text-[10px]"></i>
+                    <span>${escapeHtml(t.title)}</span>
                 </button>
             `).join('');
         }
@@ -872,15 +874,10 @@ function deleteChatFromMenu() {
                         <p class="text-xs text-slate-600 whitespace-pre-wrap mt-2.5 leading-relaxed bg-white p-3 rounded-xl border border-slate-200">${escapeHtml(t.content)}</p>
                     </div>
                     <div class="flex items-center justify-between pt-2 border-t border-slate-200/80 gap-2">
-                        <div class="flex items-center space-x-1.5 flex-wrap gap-1">
-                            <button onclick="openBulkSendModal(${t.id})" class="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-xs" title="Select users and send this template">
-                                <i class="fas fa-users text-[11px]"></i><span>Use Template (Select Users)</span>
-                            </button>
-                            <button onclick="applyTemplate('${escapeHtml(t.content)}'); switchTab('chats');" class="px-2.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold transition flex items-center space-x-1" title="Insert into active chat text box">
-                                <i class="fas fa-comment-dots text-[10px]"></i><span>Insert in Open Chat</span>
-                            </button>
-                        </div>
-                        <button onclick="deleteTemplate(${t.id})" class="text-slate-400 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition" title="Delete template"><i class="fas fa-trash text-xs"></i></button>
+                        <button onclick="openBulkSendModal(${t.id})" class="w-full px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold transition flex items-center justify-center space-x-2 shadow-xs" title="Select multiple customers to send this template">
+                            <i class="fas fa-users text-xs"></i><span>Send to Customers (Select Users)</span>
+                        </button>
+                        <button onclick="deleteTemplate(${t.id})" class="text-slate-400 hover:text-red-500 p-2 rounded hover:bg-red-50 transition flex-shrink-0" title="Delete template"><i class="fas fa-trash text-xs"></i></button>
                     </div>
                 </div>
             `).join('');
@@ -900,12 +897,9 @@ function deleteChatFromMenu() {
                         <span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/60">${escapeHtml(t.category || 'General')}</span>
                     </div>
                     <p class="text-xs text-slate-600 leading-relaxed bg-white p-2.5 rounded-xl border border-slate-200/80">${escapeHtml(t.content)}</p>
-                    <div class="flex items-center justify-end space-x-2 pt-1" onclick="event.stopPropagation()">
-                        <button type="button" onclick="applyTemplate('${escapeHtml(t.content)}'); closeTemplateSelectorModal();" class="px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition flex items-center space-x-1" title="Use in current chat text box">
-                            <i class="fas fa-comment-dots text-[10px]"></i><span>Insert in Open Chat</span>
-                        </button>
-                        <button type="button" onclick="closeTemplateSelectorModal(); openBulkSendModal(${t.id});" class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-xs" title="Select users and send this template">
-                            <i class="fas fa-users text-[11px]"></i><span>Use Template (Select Users)</span>
+                    <div class="pt-1">
+                        <button type="button" onclick="event.stopPropagation(); closeTemplateSelectorModal(); openBulkSendModal(${t.id});" class="w-full px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center justify-center space-x-2 shadow-xs" title="Select multiple customers to send this template">
+                            <i class="fas fa-users text-xs"></i><span>Send to Customers (Select Users)</span>
                         </button>
                     </div>
                 </div>
@@ -913,15 +907,18 @@ function deleteChatFromMenu() {
         }
 
         function applyTemplate(rawContent) {
-            let replaced = rawContent
-                .replace(/\{\{name\}\}/g, currentContactName || 'Customer')
-                .replace(/\{\{phone\}\}/g, currentPhone || '')
-                .replace(/\{\{date_time\}\}/g, 'Tomorrow at 2:00 PM')
-                .replace(/\{\{service\}\}/g, 'Printing & Task Service');
-            
-            document.getElementById('role-agent').checked = true;
-            document.getElementById('reply-input').value = replaced;
-            document.getElementById('reply-input').focus();
+            // If template is clicked or applied, immediately open multi-user selection modal!
+            const found = allTemplates.find(t => t.content === rawContent);
+            if (found) {
+                openBulkSendModal(found.id);
+            } else {
+                openBulkSendModal();
+                const msgArea = document.getElementById('bulk-message-text');
+                if (msgArea) {
+                    msgArea.value = rawContent;
+                    updateBulkPreview();
+                }
+            }
         }
 
         function openCreateTemplateModal() { document.getElementById('template-create-modal').classList.remove('hidden'); }
@@ -949,8 +946,11 @@ function deleteChatFromMenu() {
             fetchTemplates();
         }
 
-        function openTemplateSelectorModal() { document.getElementById('template-picker-modal').classList.remove('hidden'); }
-        function closeTemplateSelectorModal() { document.getElementById('template-picker-modal').classList.add('hidden'); }
+        function openTemplateSelectorModal() { openBulkSendModal(); }
+        function closeTemplateSelectorModal() { 
+            const modal = document.getElementById('template-picker-modal');
+            if (modal) modal.classList.add('hidden'); 
+        }
 
         // Bookings
         async function fetchBookings() {

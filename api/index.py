@@ -46,6 +46,16 @@ logger = logging.getLogger("whatsapp_support_bot")
 
 app = FastAPI(title="printingtask • WhatsApp Support Hub & Dashboard")
 
+@app.middleware("http")
+async def add_no_cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path.lower()
+    if path.endswith(".js") or path.endswith(".html") or path == "/" or "/static/" in path:
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # Mount static files and uploaded media
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
