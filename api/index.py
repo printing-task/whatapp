@@ -612,6 +612,118 @@ async def broadcast_promotional_message(request: Request):
         "details": details
     })
 
+@app.post("/api/dashboard/bulk-send")
+async def bulk_send_messages(request: Request):
+    """
+    Send a message or template to multiple selected customers in bulk.
+    Personalizes dynamic variables like {{name}}, {{phone}}, and {{service}}.
+    Sends via Meta WhatsApp Cloud API if enabled and records outbound message history.
+    """
+    data = await request.json()
+    message_template = (data.get("message") or "").strip()
+    recipients = data.get("recipients") or []
+    send_via_meta = data.get("send_via_meta", True)
+    template_title = (data.get("template_title") or "Broadcast").strip()
+
+    if not message_template:
+        return JSONResponse({"error": "Message content is required."}, status_code=400)
+
+    if not recipients:
+        return JSONResponse({"error": "Please select at least one recipient customer."}, status_code=400)
+
+    # Lookup all conversations to populate customer names if needed
+    conv_map = {}
+    try:
+        convs = db.get_conversations()
+        for c in convs:
+            p = str(c.get("phone_number") or "").replace("+", "").strip()
+            if p:
+                conv_map[p] = c.get("sender_name") or "Customer"
+    except Exception:
+        pass
+
+    target_list = []
+    seen_phones = set()
+
+    for r in recipients:
+        if isinstance(r, dict):
+            phone = str(r.get("phone") or "").strip()
+            name = (r.get("name") or "").strip()
+        else:
+            phone = str(r).strip()
+            name = ""
+
+        if not phone:
+            continue
+
+        clean_p = phone.replace("+", "").strip()
+        if clean_p in seen_phones:
+            continue
+        seen_phones.add(clean_p)
+
+        if not name or name == "Customer":
+            name = conv_map.get(clean_p, name or "Customer")
+
+        target_list.append({"phone": phone, "name": name})
+
+    if not target_list:
+        return JSONResponse({"error": "No valid phone numbers found in recipient selection."}, status_code=400)
+
+    sent_count = 0
+    failed_count = 0
+    details = []
+
+    for item in target_list:
+        phone = item["phone"]
+        name = item["name"]
+
+        # Personalize variables
+        personalized_text = message_template.replace("{{name}}", name or "Customer")
+        personalized_text = personalized_text.replace("{{phone}}", phone)
+        personalized_text = personalized_text.replace("{{service}}", "Printing & Custom Orders")
+
+        status = "sent"
+        meta_payload = {}
+
+        if send_via_meta:
+            success, meta_res = send_meta_whatsapp_message(phone, personalized_text)
+            status = "sent" if success else "failed"
+            meta_payload = {"meta_api_response": meta_res}
+            if success:
+                sent_count += 1
+            else:
+                failed_count += 1
+        else:
+            sent_count += 1
+
+        db.save_message(
+            phone_number=phone,
+            sender_name="printingtask Broadcast",
+            message=personalized_text,
+            direction="outbound",
+            channel="meta_whatsapp" if send_via_meta else "manual_admin",
+            status=status,
+            raw_payload=meta_payload,
+            ai_model=f"bulk_broadcast:{template_title}"
+        )
+
+        # Temporarily pause AI bot for contact so human/custom responses aren't interrupted
+        db.set_bot_enabled_for_contact(phone, False)
+
+        details.append({
+            "phone": phone,
+            "name": name,
+            "status": status
+        })
+
+    return JSONResponse({
+        "success": True,
+        "total_targets": len(target_list),
+        "sent_count": sent_count,
+        "failed_count": failed_count,
+        "details": details
+    })
+
 @app.post("/api/dashboard/send-media")
 async def send_dashboard_media(
     phone: str = Form(...),

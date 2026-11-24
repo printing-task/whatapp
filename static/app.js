@@ -870,11 +870,16 @@ function deleteChatFromMenu() {
                         </div>
                         <p class="text-xs text-slate-600 whitespace-pre-wrap mt-2.5 leading-relaxed bg-white p-3 rounded-xl border border-slate-200">${escapeHtml(t.content)}</p>
                     </div>
-                    <div class="flex items-center justify-between pt-2 border-t border-slate-200/80">
-                        <button onclick="applyTemplate('${escapeHtml(t.content)}'); switchTab('chats');" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition">
-                            <i class="fas fa-paper-plane mr-1"></i> Use Template
-                        </button>
-                        <button onclick="deleteTemplate(${t.id})" class="text-slate-400 hover:text-red-500 p-1 transition"><i class="fas fa-trash"></i></button>
+                    <div class="flex items-center justify-between pt-2 border-t border-slate-200/80 gap-2">
+                        <div class="flex items-center space-x-1.5 flex-wrap gap-1">
+                            <button onclick="applyTemplate('${escapeHtml(t.content)}'); switchTab('chats');" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center space-x-1" title="Use in active chat">
+                                <i class="fas fa-paper-plane text-[10px]"></i><span>Use in Chat</span>
+                            </button>
+                            <button onclick="openBulkSendModal(${t.id})" class="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center space-x-1" title="Send this template to multiple customers in bulk">
+                                <i class="fas fa-users text-[10px]"></i><span>Send to Customers</span>
+                            </button>
+                        </div>
+                        <button onclick="deleteTemplate(${t.id})" class="text-slate-400 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition" title="Delete template"><i class="fas fa-trash text-xs"></i></button>
                     </div>
                 </div>
             `).join('');
@@ -1561,6 +1566,409 @@ function deleteChatFromMenu() {
                         submitBtn.innerHTML = `<i class="fas fa-paper-plane text-xs"></i> <span>Send Promo Now</span>`;
                     }
                 }
+            }
+        }
+
+        // ====================================================================
+        // BULK MESSAGE & TEMPLATE BROADCAST
+        // ====================================================================
+        let bulkSelectedPhones = new Set();
+        let bulkActiveFilter = 'all'; // 'all', 'active', 'expired'
+        let bulkSearchQuery = '';
+
+        function openBulkSendModal(preselectTemplateId = null) {
+            const modal = document.getElementById('bulk-send-modal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+
+            // 1. Populate Templates Dropdown
+            const selectEl = document.getElementById('bulk-template-select');
+            if (selectEl) {
+                selectEl.innerHTML = `
+                    <option value="">-- Choose a Saved Template (or type custom) --</option>
+                    ${allTemplates.map(t => `<option value="${t.id}">${escapeHtml(t.title)} (${escapeHtml(t.category || 'General')})</option>`).join('')}
+                `;
+                if (preselectTemplateId) {
+                    selectEl.value = String(preselectTemplateId);
+                    handleBulkTemplateSelect(preselectTemplateId);
+                } else if (!document.getElementById('bulk-message-text').value) {
+                    // Preselect first template if available
+                    if (allTemplates.length > 0) {
+                        selectEl.value = String(allTemplates[0].id);
+                        handleBulkTemplateSelect(allTemplates[0].id);
+                    }
+                }
+            }
+
+            // 2. Initialize Recipient Selection:
+            // Select all customers by default so user can immediately send, or filter
+            bulkSelectedPhones.clear();
+            const activeList = allConversations.filter(c => c.is_free_window_active);
+            if (activeList.length > 0) {
+                activeList.forEach(c => bulkSelectedPhones.add(c.phone_number));
+                bulkActiveFilter = 'active';
+            } else {
+                allConversations.forEach(c => bulkSelectedPhones.add(c.phone_number));
+                bulkActiveFilter = 'all';
+            }
+
+            setBulkFilter(bulkActiveFilter);
+
+            bulkSearchQuery = '';
+            const searchInput = document.getElementById('bulk-search-input');
+            if (searchInput) searchInput.value = '';
+
+            renderBulkRecipientsList();
+            updateBulkCountsAndBadges();
+            updateBulkPreview();
+        }
+
+        function closeBulkSendModal() {
+            const modal = document.getElementById('bulk-send-modal');
+            if (modal) modal.classList.add('hidden');
+            const progressBox = document.getElementById('bulk-progress-box');
+            if (progressBox) progressBox.classList.add('hidden');
+        }
+
+        function handleBulkTemplateSelect(templateId) {
+            const msgArea = document.getElementById('bulk-message-text');
+            if (!msgArea) return;
+            if (!templateId) return;
+            const t = allTemplates.find(x => String(x.id) === String(templateId));
+            if (t) {
+                msgArea.value = t.content;
+                updateBulkPreview();
+            }
+        }
+
+        function insertBulkVariable(varTag) {
+            const msgArea = document.getElementById('bulk-message-text');
+            if (!msgArea) return;
+            const start = msgArea.selectionStart;
+            const end = msgArea.selectionEnd;
+            const text = msgArea.value;
+            msgArea.value = text.substring(0, start) + varTag + text.substring(end);
+            msgArea.focus();
+            msgArea.selectionStart = msgArea.selectionEnd = start + varTag.length;
+            updateBulkPreview();
+        }
+
+        function handleBulkMessageInput() {
+            updateBulkPreview();
+        }
+
+        function updateBulkPreview() {
+            const msgArea = document.getElementById('bulk-message-text');
+            const previewEl = document.getElementById('bulk-preview-bubble');
+            if (!previewEl) return;
+            const raw = msgArea ? msgArea.value.trim() : '';
+            if (!raw) {
+                previewEl.innerHTML = `<span class="text-slate-400 italic">Type a message or select a template to preview...</span>`;
+                return;
+            }
+            // Sample replacement with first selected or sample customer
+            let sampleName = "Customer";
+            let samplePhone = "+91 98765 43210";
+            if (bulkSelectedPhones.size > 0) {
+                const firstPhone = Array.from(bulkSelectedPhones)[0];
+                const found = allConversations.find(c => c.phone_number === firstPhone);
+                if (found) {
+                    sampleName = found.sender_name || sampleName;
+                    samplePhone = found.phone_number || samplePhone;
+                }
+            }
+            let preview = raw.replace(/{{name}}/g, sampleName);
+            preview = preview.replace(/{{phone}}/g, samplePhone);
+            preview = preview.replace(/{{service}}/g, "Printing & Task Order");
+            previewEl.innerText = preview;
+        }
+
+        function setBulkFilter(filterType) {
+            bulkActiveFilter = filterType;
+            const tabAll = document.getElementById('bulk-filter-all');
+            const tabActive = document.getElementById('bulk-filter-active');
+            const tabExpired = document.getElementById('bulk-filter-expired');
+
+            if (tabAll) {
+                tabAll.className = filterType === 'all'
+                    ? 'flex-1 py-1 px-2 rounded-lg bg-blue-600 text-white font-bold text-center transition'
+                    : 'flex-1 py-1 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-center transition';
+            }
+            if (tabActive) {
+                tabActive.className = filterType === 'active'
+                    ? 'flex-1 py-1 px-2 rounded-lg bg-emerald-600 text-white font-bold text-center transition flex items-center justify-center space-x-1'
+                    : 'flex-1 py-1 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-center transition flex items-center justify-center space-x-1';
+            }
+            if (tabExpired) {
+                tabExpired.className = filterType === 'expired'
+                    ? 'flex-1 py-1 px-2 rounded-lg bg-slate-700 text-white font-bold text-center transition'
+                    : 'flex-1 py-1 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-center transition';
+            }
+
+            renderBulkRecipientsList();
+        }
+
+        function filterBulkRecipientsList() {
+            const input = document.getElementById('bulk-search-input');
+            bulkSearchQuery = input ? input.value.trim().toLowerCase() : '';
+            renderBulkRecipientsList();
+        }
+
+        function getFilteredBulkConversations() {
+            let list = allConversations || [];
+            if (bulkActiveFilter === 'active') {
+                list = list.filter(c => c.is_free_window_active);
+            } else if (bulkActiveFilter === 'expired') {
+                list = list.filter(c => !c.is_free_window_active);
+            }
+            if (bulkSearchQuery) {
+                list = list.filter(c => {
+                    const name = (c.sender_name || '').toLowerCase();
+                    const phone = (c.phone_number || '').toLowerCase();
+                    const msg = (c.last_message || '').toLowerCase();
+                    return name.includes(bulkSearchQuery) || phone.includes(bulkSearchQuery) || msg.includes(bulkSearchQuery);
+                });
+            }
+            return list;
+        }
+
+        function renderBulkRecipientsList() {
+            const container = document.getElementById('bulk-recipients-list');
+            if (!container) return;
+
+            const list = getFilteredBulkConversations();
+            if (!list.length) {
+                container.innerHTML = `
+                    <div class="p-6 text-center text-slate-400 text-xs">
+                        <i class="far fa-user text-xl mb-1 text-slate-300 block"></i>
+                        No customer contacts found matching this filter.
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = list.map(c => {
+                const isSelected = bulkSelectedPhones.has(c.phone_number);
+                const isFree = c.is_free_window_active && c.free_window_seconds_left > 0;
+                const windowBadge = isFree
+                    ? `<span class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold px-1.5 py-0.2 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>24h Free (${formatWindowTime(c.free_window_seconds_left)})</span>`
+                    : `<span class="inline-flex items-center text-[9px] bg-slate-100 text-slate-400 font-medium px-1.5 py-0.2 rounded">Expired</span>`;
+
+                return `
+                    <div onclick="toggleBulkRecipient('${c.phone_number}')" 
+                         class="p-2.5 flex items-center justify-between hover:bg-slate-100/80 cursor-pointer transition rounded-xl ${isSelected ? 'bg-blue-50/70 border-l-2 border-blue-600' : ''}">
+                        <div class="flex items-center space-x-2.5 min-w-0">
+                            <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleBulkRecipient('${c.phone_number}')"
+                                   class="w-4 h-4 rounded text-blue-600 focus:ring-0 cursor-pointer">
+                            <div class="w-7 h-7 rounded-full ${getAvatarColor(c.phone_number)} text-white font-extrabold flex items-center justify-center text-[10px] flex-shrink-0">
+                                ${getInitials(c.sender_name || c.phone_number)}
+                            </div>
+                            <div class="min-w-0 truncate">
+                                <span class="font-bold text-slate-900 block truncate text-xs leading-tight">${escapeHtml(c.sender_name || c.phone_number)}</span>
+                                <span class="text-[10px] text-slate-500 font-mono">${escapeHtml(c.phone_number)}</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-1.5 flex-shrink-0 ml-2">
+                            ${windowBadge}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function toggleBulkRecipient(phone) {
+            if (!phone) return;
+            if (bulkSelectedPhones.has(phone)) {
+                bulkSelectedPhones.delete(phone);
+            } else {
+                bulkSelectedPhones.add(phone);
+            }
+            renderBulkRecipientsList();
+            updateBulkCountsAndBadges();
+            updateBulkPreview();
+        }
+
+        function toggleSelectAllBulk(selectState) {
+            const list = getFilteredBulkConversations();
+            if (selectState) {
+                list.forEach(c => bulkSelectedPhones.add(c.phone_number));
+            } else {
+                list.forEach(c => bulkSelectedPhones.delete(c.phone_number));
+            }
+            renderBulkRecipientsList();
+            updateBulkCountsAndBadges();
+            updateBulkPreview();
+        }
+
+        function handleBulkExtraPhonesInput() {
+            updateBulkCountsAndBadges();
+        }
+
+        function parseExtraPhones() {
+            const textarea = document.getElementById('bulk-extra-phones');
+            if (!textarea || !textarea.value.trim()) return [];
+            const raw = textarea.value;
+            const parts = raw.split(/[\n,;]+/);
+            const valid = [];
+            for (let p of parts) {
+                p = p.trim();
+                const digits = p.replace(/[^0-9]/g, '');
+                if (digits.length >= 7) {
+                    valid.push(p);
+                }
+            }
+            return valid;
+        }
+
+        function updateBulkCountsAndBadges() {
+            const allCount = allConversations.length;
+            const activeCount = allConversations.filter(c => c.is_free_window_active).length;
+            const expiredCount = allCount - activeCount;
+
+            const cAll = document.getElementById('bulk-count-all');
+            const cActive = document.getElementById('bulk-count-active');
+            const cExpired = document.getElementById('bulk-count-expired');
+
+            if (cAll) cAll.innerText = allCount;
+            if (cActive) cActive.innerText = activeCount;
+            if (cExpired) cExpired.innerText = expiredCount;
+
+            const extraPhones = parseExtraPhones();
+            const totalSelected = bulkSelectedPhones.size + extraPhones.length;
+
+            const badge = document.getElementById('bulk-selected-badge');
+            const btnCount = document.getElementById('bulk-btn-count');
+            const submitBtn = document.getElementById('bulk-send-submit-btn');
+
+            if (badge) badge.innerText = `${totalSelected} Selected`;
+            if (btnCount) btnCount.innerText = totalSelected;
+            if (submitBtn) submitBtn.disabled = totalSelected === 0;
+
+            const costBadge = document.getElementById('bulk-cost-badge');
+            if (costBadge) {
+                let freeCount = 0;
+                bulkSelectedPhones.forEach(p => {
+                    const c = allConversations.find(x => x.phone_number === p);
+                    if (c && c.is_free_window_active) freeCount++;
+                });
+                if (freeCount === totalSelected && totalSelected > 0) {
+                    costBadge.className = 'px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[10px]';
+                    costBadge.innerText = '₹0 Meta Fee for All Selected';
+                } else {
+                    costBadge.className = 'px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold text-[10px]';
+                    costBadge.innerText = `${freeCount} in ₹0 Free Window`;
+                }
+            }
+        }
+
+        function mobileNavBulkSend() {
+            toggleMobileMenu();
+            openBulkSendModal();
+        }
+
+        async function executeBulkSend() {
+            const msgArea = document.getElementById('bulk-message-text');
+            const message = msgArea ? msgArea.value.trim() : '';
+            if (!message) {
+                alert("Please enter message content or select a template.");
+                return;
+            }
+
+            const extraPhones = parseExtraPhones();
+            const selectedList = Array.from(bulkSelectedPhones);
+            const allTargets = [];
+            const seen = new Set();
+
+            for (const phone of selectedList) {
+                const c = allConversations.find(x => x.phone_number === phone);
+                const clean = phone.replace(/[^0-9]/g, '');
+                if (!seen.has(clean)) {
+                    seen.add(clean);
+                    allTargets.push({
+                        phone: phone,
+                        name: (c ? c.sender_name : 'Customer') || 'Customer'
+                    });
+                }
+            }
+
+            for (const phone of extraPhones) {
+                const clean = phone.replace(/[^0-9]/g, '');
+                if (!seen.has(clean)) {
+                    seen.add(clean);
+                    allTargets.push({
+                        phone: phone,
+                        name: 'Customer'
+                    });
+                }
+            }
+
+            if (!allTargets.length) {
+                alert("Please select or enter at least one recipient customer.");
+                return;
+            }
+
+            const sendViaMeta = document.getElementById('bulk-send-meta-cloud')?.checked ?? true;
+            const templateSelect = document.getElementById('bulk-template-select');
+            let templateTitle = "Custom Broadcast";
+            if (templateSelect && templateSelect.value) {
+                const t = allTemplates.find(x => String(x.id) === String(templateSelect.value));
+                if (t) templateTitle = t.title;
+            }
+
+            const confirmMsg = `Are you sure you want to send this notification to ${allTargets.length} customer(s)?\n\nTemplate: "${templateTitle}"\nForward to WhatsApp: ${sendViaMeta ? 'Yes' : 'No'}`;
+            if (!confirm(confirmMsg)) return;
+
+            const submitBtn = document.getElementById('bulk-send-submit-btn');
+            const progressBox = document.getElementById('bulk-progress-box');
+            const progressBar = document.getElementById('bulk-progress-bar');
+            const progressStatus = document.getElementById('bulk-progress-status');
+            const progressPercent = document.getElementById('bulk-progress-percent');
+
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = `<i class="fas fa-circle-notch fa-spin text-xs mr-1"></i> <span>Sending...</span>`;
+            }
+
+            if (progressBox) progressBox.classList.remove('hidden');
+            if (progressBar) progressBar.style.width = '35%';
+            if (progressStatus) progressStatus.innerText = `Broadcasting to ${allTargets.length} customers...`;
+            if (progressPercent) progressPercent.innerText = '35%';
+
+            try {
+                if (progressBar) progressBar.style.width = '65%';
+                if (progressPercent) progressPercent.innerText = '65%';
+
+                const res = await fetch('/api/dashboard/bulk-send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: message,
+                        recipients: allTargets,
+                        send_via_meta: sendViaMeta,
+                        template_title: templateTitle
+                    })
+                });
+
+                if (progressBar) progressBar.style.width = '100%';
+                if (progressPercent) progressPercent.innerText = '100%';
+
+                const data = await res.json();
+                if (res.ok && data.success) {
+                    alert(`🎉 Bulk Sending Complete!\n\n• Total Recipients: ${data.total_targets}\n• Successfully Sent: ${data.sent_count}\n• Failed: ${data.failed_count}`);
+                    closeBulkSendModal();
+                    await fetchData(true);
+                } else {
+                    alert("Bulk send error: " + (data.error || "Failed to broadcast message"));
+                }
+            } catch (err) {
+                alert("Network error: " + err.message);
+            } finally {
+                if (submitBtn) {
+                    submitBtn.disabled = false;
+                    const finalTotal = bulkSelectedPhones.size + parseExtraPhones().length;
+                    submitBtn.innerHTML = `<i class="fas fa-paper-plane text-xs"></i> <span>Send Bulk Message (<span id="bulk-btn-count">${finalTotal}</span>)</span>`;
+                }
+                if (progressBox) progressBox.classList.add('hidden');
             }
         }
 
