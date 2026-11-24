@@ -857,6 +857,7 @@ function deleteChatFromMenu() {
 
         function renderTemplatesGrid() {
             const grid = document.getElementById('templates-grid');
+            if (!grid) return;
             if (!allTemplates.length) {
                 grid.innerHTML = `<div class="p-8 text-center text-slate-400 col-span-3">No templates created yet.</div>`;
                 return;
@@ -872,11 +873,11 @@ function deleteChatFromMenu() {
                     </div>
                     <div class="flex items-center justify-between pt-2 border-t border-slate-200/80 gap-2">
                         <div class="flex items-center space-x-1.5 flex-wrap gap-1">
-                            <button onclick="applyTemplate('${escapeHtml(t.content)}'); switchTab('chats');" class="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center space-x-1" title="Use in active chat">
-                                <i class="fas fa-paper-plane text-[10px]"></i><span>Use in Chat</span>
+                            <button onclick="openBulkSendModal(${t.id})" class="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-xs" title="Select users and send this template">
+                                <i class="fas fa-users text-[11px]"></i><span>Use Template (Select Users)</span>
                             </button>
-                            <button onclick="openBulkSendModal(${t.id})" class="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center space-x-1" title="Send this template to multiple customers in bulk">
-                                <i class="fas fa-users text-[10px]"></i><span>Send to Customers</span>
+                            <button onclick="applyTemplate('${escapeHtml(t.content)}'); switchTab('chats');" class="px-2.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold transition flex items-center space-x-1" title="Insert into active chat text box">
+                                <i class="fas fa-comment-dots text-[10px]"></i><span>Insert in Open Chat</span>
                             </button>
                         </div>
                         <button onclick="deleteTemplate(${t.id})" class="text-slate-400 hover:text-red-500 p-1.5 rounded hover:bg-red-50 transition" title="Delete template"><i class="fas fa-trash text-xs"></i></button>
@@ -893,18 +894,18 @@ function deleteChatFromMenu() {
                 return;
             }
             list.innerHTML = allTemplates.map(t => `
-                <div class="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-200 transition space-y-2">
+                <div onclick="closeTemplateSelectorModal(); openBulkSendModal(${t.id});" class="p-3.5 bg-slate-50 hover:bg-blue-50/70 rounded-2xl border border-slate-200 cursor-pointer transition space-y-2 group">
                     <div class="flex items-center justify-between">
-                        <h4 class="font-bold text-slate-900 text-sm">${escapeHtml(t.title)}</h4>
+                        <h4 class="font-bold text-slate-900 text-sm group-hover:text-blue-700 transition">${escapeHtml(t.title)}</h4>
                         <span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/60">${escapeHtml(t.category || 'General')}</span>
                     </div>
                     <p class="text-xs text-slate-600 leading-relaxed bg-white p-2.5 rounded-xl border border-slate-200/80">${escapeHtml(t.content)}</p>
-                    <div class="flex items-center justify-end space-x-2 pt-1">
-                        <button type="button" onclick="applyTemplate('${escapeHtml(t.content)}'); closeTemplateSelectorModal();" class="px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition flex items-center space-x-1" title="Use in this active chat">
-                            <i class="fas fa-comment-dots text-[10px]"></i><span>Use in this Chat</span>
+                    <div class="flex items-center justify-end space-x-2 pt-1" onclick="event.stopPropagation()">
+                        <button type="button" onclick="applyTemplate('${escapeHtml(t.content)}'); closeTemplateSelectorModal();" class="px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition flex items-center space-x-1" title="Use in current chat text box">
+                            <i class="fas fa-comment-dots text-[10px]"></i><span>Insert in Open Chat</span>
                         </button>
-                        <button type="button" onclick="closeTemplateSelectorModal(); openBulkSendModal(${t.id});" class="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center space-x-1 shadow-xs" title="Send this template to multiple customers">
-                            <i class="fas fa-users text-[10px]"></i><span>Send to Multiple Customers</span>
+                        <button type="button" onclick="closeTemplateSelectorModal(); openBulkSendModal(${t.id});" class="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center space-x-1.5 shadow-xs" title="Select users and send this template">
+                            <i class="fas fa-users text-[11px]"></i><span>Use Template (Select Users)</span>
                         </button>
                     </div>
                 </div>
@@ -1619,6 +1620,17 @@ function deleteChatFromMenu() {
             allConversations.forEach(c => bulkSelectedPhones.add(c.phone_number));
             bulkActiveFilter = 'all';
 
+            // Show or hide the quick chip for active chat customer
+            const currentChip = document.getElementById('bulk-chip-current-user');
+            if (currentChip) {
+                if (currentPhone) {
+                    currentChip.classList.remove('hidden');
+                    currentChip.innerHTML = `<i class="fas fa-user text-[9px] mr-1"></i>${escapeHtml(currentContactName || currentPhone)} Only`;
+                } else {
+                    currentChip.classList.add('hidden');
+                }
+            }
+
             setBulkFilter('all');
 
             bulkSearchQuery = '';
@@ -1736,6 +1748,14 @@ function deleteChatFromMenu() {
                     return name.includes(bulkSearchQuery) || phone.includes(bulkSearchQuery) || msg.includes(bulkSearchQuery);
                 });
             }
+            // If currentPhone is active, sort it to the very top so user sees active chat contact first
+            if (currentPhone) {
+                list = list.slice().sort((a, b) => {
+                    if (a.phone_number === currentPhone) return -1;
+                    if (b.phone_number === currentPhone) return 1;
+                    return 0;
+                });
+            }
             return list;
         }
 
@@ -1756,10 +1776,15 @@ function deleteChatFromMenu() {
 
             container.innerHTML = list.map(c => {
                 const isSelected = bulkSelectedPhones.has(c.phone_number);
+                const isCurrentChat = c.phone_number === currentPhone;
                 const isFree = c.is_free_window_active && c.free_window_seconds_left > 0;
                 const windowBadge = isFree
                     ? `<span class="inline-flex items-center text-[9px] bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold px-1.5 py-0.2 rounded-full"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>24h Free (${formatWindowTime(c.free_window_seconds_left)})</span>`
                     : `<span class="inline-flex items-center text-[9px] bg-slate-100 text-slate-400 font-medium px-1.5 py-0.2 rounded">Expired</span>`;
+
+                const currentBadge = isCurrentChat 
+                    ? `<span class="inline-flex items-center text-[9px] bg-blue-100 text-blue-700 font-extrabold px-1.5 py-0.2 rounded ml-1 whitespace-nowrap">Current Chat</span>` 
+                    : '';
 
                 return `
                     <div id="bulk-row-${c.phone_number}" onclick="handleBulkRowClick(event, '${c.phone_number}')" 
@@ -1771,7 +1796,10 @@ function deleteChatFromMenu() {
                                 ${getInitials(c.sender_name || c.phone_number)}
                             </div>
                             <div class="min-w-0 truncate">
-                                <span class="font-bold text-slate-900 block truncate text-xs leading-tight">${escapeHtml(c.sender_name || c.phone_number)}</span>
+                                <div class="flex items-center space-x-1 truncate">
+                                    <span class="font-bold text-slate-900 block truncate text-xs leading-tight">${escapeHtml(c.sender_name || c.phone_number)}</span>
+                                    ${currentBadge}
+                                </div>
                                 <span class="text-[10px] text-slate-500 font-mono">${escapeHtml(c.phone_number)}</span>
                             </div>
                         </div>
@@ -1782,6 +1810,29 @@ function deleteChatFromMenu() {
                 `;
             }).join('');
         }
+
+        function bulkSelectCurrentCustomerOnly() {
+            if (!currentPhone) return;
+            bulkSelectedPhones.clear();
+            bulkSelectedPhones.add(currentPhone);
+            setBulkFilter('all');
+            renderBulkRecipientsList();
+            updateBulkCountsAndBadges();
+            updateBulkPreview();
+        }
+
+        function bulkSelectActiveOnly() {
+            bulkSelectedPhones.clear();
+            allConversations.filter(c => c.is_free_window_active).forEach(c => bulkSelectedPhones.add(c.phone_number));
+            setBulkFilter('active');
+            renderBulkRecipientsList();
+            updateBulkCountsAndBadges();
+            updateBulkPreview();
+        }
+
+        window.openSendTemplateModal = openBulkSendModal;
+        window.bulkSelectCurrentCustomerOnly = bulkSelectCurrentCustomerOnly;
+        window.bulkSelectActiveOnly = bulkSelectActiveOnly;
 
         function handleBulkRowClick(event, phone) {
             setBulkRecipientChecked(phone, !bulkSelectedPhones.has(phone));
