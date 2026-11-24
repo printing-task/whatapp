@@ -887,13 +887,26 @@ function deleteChatFromMenu() {
 
         function renderTemplatePicker() {
             const list = document.getElementById('template-picker-list');
+            if (!list) return;
+            if (!allTemplates.length) {
+                list.innerHTML = `<div class="p-6 text-center text-slate-400">No templates found. Create one first!</div>`;
+                return;
+            }
             list.innerHTML = allTemplates.map(t => `
-                <div onclick="applyTemplate('${escapeHtml(t.content)}'); closeTemplateSelectorModal();" class="p-3.5 bg-slate-50 hover:bg-emerald-50 rounded-2xl border border-slate-200 cursor-pointer transition">
+                <div class="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-2xl border border-slate-200 transition space-y-2">
                     <div class="flex items-center justify-between">
-                        <h4 class="font-bold text-slate-900">${escapeHtml(t.title)}</h4>
-                        <span class="text-[10px] font-bold text-slate-500">${escapeHtml(t.category)}</span>
+                        <h4 class="font-bold text-slate-900 text-sm">${escapeHtml(t.title)}</h4>
+                        <span class="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200/60">${escapeHtml(t.category || 'General')}</span>
                     </div>
-                    <p class="text-xs text-slate-600 mt-1.5 truncate">${escapeHtml(t.content)}</p>
+                    <p class="text-xs text-slate-600 leading-relaxed bg-white p-2.5 rounded-xl border border-slate-200/80">${escapeHtml(t.content)}</p>
+                    <div class="flex items-center justify-end space-x-2 pt-1">
+                        <button type="button" onclick="applyTemplate('${escapeHtml(t.content)}'); closeTemplateSelectorModal();" class="px-2.5 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition flex items-center space-x-1" title="Use in this active chat">
+                            <i class="fas fa-comment-dots text-[10px]"></i><span>Use in this Chat</span>
+                        </button>
+                        <button type="button" onclick="closeTemplateSelectorModal(); openBulkSendModal(${t.id});" class="px-3 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition flex items-center space-x-1 shadow-xs" title="Send this template to multiple customers">
+                            <i class="fas fa-users text-[10px]"></i><span>Send to Multiple Customers</span>
+                        </button>
+                    </div>
                 </div>
             `).join('');
         }
@@ -1601,18 +1614,12 @@ function deleteChatFromMenu() {
             }
 
             // 2. Initialize Recipient Selection:
-            // Select all customers by default so user can immediately send, or filter
+            // Select all customers by default so user can immediately see and select/deselect multiple users
             bulkSelectedPhones.clear();
-            const activeList = allConversations.filter(c => c.is_free_window_active);
-            if (activeList.length > 0) {
-                activeList.forEach(c => bulkSelectedPhones.add(c.phone_number));
-                bulkActiveFilter = 'active';
-            } else {
-                allConversations.forEach(c => bulkSelectedPhones.add(c.phone_number));
-                bulkActiveFilter = 'all';
-            }
+            allConversations.forEach(c => bulkSelectedPhones.add(c.phone_number));
+            bulkActiveFilter = 'all';
 
-            setBulkFilter(bulkActiveFilter);
+            setBulkFilter('all');
 
             bulkSearchQuery = '';
             const searchInput = document.getElementById('bulk-search-input');
@@ -1755,10 +1762,10 @@ function deleteChatFromMenu() {
                     : `<span class="inline-flex items-center text-[9px] bg-slate-100 text-slate-400 font-medium px-1.5 py-0.2 rounded">Expired</span>`;
 
                 return `
-                    <div onclick="toggleBulkRecipient('${c.phone_number}')" 
+                    <div id="bulk-row-${c.phone_number}" onclick="handleBulkRowClick(event, '${c.phone_number}')" 
                          class="p-2.5 flex items-center justify-between hover:bg-slate-100/80 cursor-pointer transition rounded-xl ${isSelected ? 'bg-blue-50/70 border-l-2 border-blue-600' : ''}">
                         <div class="flex items-center space-x-2.5 min-w-0">
-                            <input type="checkbox" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); toggleBulkRecipient('${c.phone_number}')"
+                            <input type="checkbox" id="bulk-cb-${c.phone_number}" ${isSelected ? 'checked' : ''} onchange="handleBulkCheckboxChange('${c.phone_number}', this.checked)" onclick="event.stopPropagation()"
                                    class="w-4 h-4 rounded text-blue-600 focus:ring-0 cursor-pointer">
                             <div class="w-7 h-7 rounded-full ${getAvatarColor(c.phone_number)} text-white font-extrabold flex items-center justify-center text-[10px] flex-shrink-0">
                                 ${getInitials(c.sender_name || c.phone_number)}
@@ -1776,26 +1783,59 @@ function deleteChatFromMenu() {
             }).join('');
         }
 
-        function toggleBulkRecipient(phone) {
+        function handleBulkRowClick(event, phone) {
+            setBulkRecipientChecked(phone, !bulkSelectedPhones.has(phone));
+        }
+
+        function handleBulkCheckboxChange(phone, isChecked) {
+            setBulkRecipientChecked(phone, isChecked);
+        }
+
+        function setBulkRecipientChecked(phone, isChecked) {
             if (!phone) return;
-            if (bulkSelectedPhones.has(phone)) {
-                bulkSelectedPhones.delete(phone);
-            } else {
+            if (isChecked) {
                 bulkSelectedPhones.add(phone);
+            } else {
+                bulkSelectedPhones.delete(phone);
             }
-            renderBulkRecipientsList();
+            const row = document.getElementById(`bulk-row-${phone}`);
+            const cb = document.getElementById(`bulk-cb-${phone}`);
+            if (cb) cb.checked = isChecked;
+            if (row) {
+                if (isChecked) {
+                    row.classList.add('bg-blue-50/70', 'border-l-2', 'border-blue-600');
+                } else {
+                    row.classList.remove('bg-blue-50/70', 'border-l-2', 'border-blue-600');
+                }
+            }
             updateBulkCountsAndBadges();
             updateBulkPreview();
         }
 
+        function toggleBulkRecipient(phone) {
+            if (!phone) return;
+            setBulkRecipientChecked(phone, !bulkSelectedPhones.has(phone));
+        }
+
         function toggleSelectAllBulk(selectState) {
             const list = getFilteredBulkConversations();
-            if (selectState) {
-                list.forEach(c => bulkSelectedPhones.add(c.phone_number));
-            } else {
-                list.forEach(c => bulkSelectedPhones.delete(c.phone_number));
-            }
-            renderBulkRecipientsList();
+            list.forEach(c => {
+                if (selectState) {
+                    bulkSelectedPhones.add(c.phone_number);
+                } else {
+                    bulkSelectedPhones.delete(c.phone_number);
+                }
+                const row = document.getElementById(`bulk-row-${c.phone_number}`);
+                const cb = document.getElementById(`bulk-cb-${c.phone_number}`);
+                if (cb) cb.checked = selectState;
+                if (row) {
+                    if (selectState) {
+                        row.classList.add('bg-blue-50/70', 'border-l-2', 'border-blue-600');
+                    } else {
+                        row.classList.remove('bg-blue-50/70', 'border-l-2', 'border-blue-600');
+                    }
+                }
+            });
             updateBulkCountsAndBadges();
             updateBulkPreview();
         }
@@ -1858,6 +1898,18 @@ function deleteChatFromMenu() {
                     costBadge.className = 'px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold text-[10px]';
                     costBadge.innerText = `${freeCount} in ₹0 Free Window`;
                 }
+            }
+
+            // Also update Master Select All Checkbox and Count
+            const filtered = getFilteredBulkConversations();
+            const masterCount = document.getElementById('bulk-master-count');
+            if (masterCount) masterCount.innerText = filtered.length;
+            const masterCb = document.getElementById('bulk-master-checkbox');
+            if (masterCb) {
+                const hasVisible = filtered.length > 0;
+                const allVisibleSelected = hasVisible && filtered.every(c => bulkSelectedPhones.has(c.phone_number));
+                masterCb.checked = allVisibleSelected;
+                masterCb.indeterminate = hasVisible && !allVisibleSelected && filtered.some(c => bulkSelectedPhones.has(c.phone_number));
             }
         }
 
