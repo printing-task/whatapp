@@ -980,7 +980,33 @@ async def direct_chat(request: Request):
 
 
 # ====================================================================
-# 3. DASHBOARD USER INTERFACE (MODULAR TEMPLATE & STATIC JS)
+# 3. SEO & AI DISCOVERY ENDPOINTS
+# ====================================================================
+
+@app.get("/robots.txt")
+async def serve_robots():
+    robots_path = os.path.join(BASE_DIR, "robots.txt")
+    if os.path.exists(robots_path):
+        return FileResponse(robots_path, media_type="text/plain")
+    return Response(content="User-agent: *\nAllow: /\n", media_type="text/plain")
+
+@app.get("/sitemap.xml")
+async def serve_sitemap():
+    sitemap_path = os.path.join(BASE_DIR, "sitemap.xml")
+    if os.path.exists(sitemap_path):
+        return FileResponse(sitemap_path, media_type="application/xml")
+    return Response(content="<urlset></urlset>", media_type="application/xml")
+
+@app.get("/llms.txt")
+async def serve_llms():
+    llms_path = os.path.join(BASE_DIR, "llms.txt")
+    if os.path.exists(llms_path):
+        return FileResponse(llms_path, media_type="text/markdown")
+    return Response(content="# printingtask\nAI Support Hub\n", media_type="text/markdown")
+
+
+# ====================================================================
+# 4. DASHBOARD USER INTERFACE (MODULAR TEMPLATE & STATIC JS)
 # ====================================================================
 
 @app.get("/dashboard", response_class=HTMLResponse)

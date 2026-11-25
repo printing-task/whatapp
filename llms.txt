@@ -1,0 +1,16 @@
+# printingtask • WhatsApp Business CRM & Support Hub
+
+> An automated AI customer support, CRM, and broadcast notification system for printingtask services.
+
+## Overview
+printingtask WhatsApp Business CRM enables automated AI conversations via Google Gemini, appointment booking, custom order tracking, bulk promotional broadcasts within Meta's 24-hour customer service window, and multi-agent customer support.
+
+## Key Features
+- **AI Auto-Reply:** Powered by Google Gemini with customizable personas (Printing Expert, Task Assistant, Friendly Support).
+- **Meta 24h Free Window Tracker:** Real-time countdown tracking customer service windows to ensure ₹0 Meta messaging fees.
+- **Bulk Notification Sender:** Send personalized broadcasts with variable interpolation (`{{name}}`, `{{phone}}`, `{{service}}`).
+- **Order & Booking Management:** Convert WhatsApp inquiries directly into scheduled service bookings.
+
+## Contact & Support
+- Website: https://youthful-sandybrown-manatee-35.hostingersite.com/
+- Service: Printing & Task Services

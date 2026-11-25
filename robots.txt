@@ -1,0 +1,25 @@
+# Allow all major search engines and AI crawlers
+User-agent: *
+Allow: /
+Disallow: /api/
+
+# AI Crawlers (Search & Assistants)
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://youthful-sandybrown-manatee-35.hostingersite.com/sitemap.xml
