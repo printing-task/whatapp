@@ -22,6 +22,10 @@ Options -Indexes
     # Route /webhook and /api/webhook directly to webhook.php
     RewriteRule ^webhook/?$ webhook.php [L,QSA]
     RewriteRule ^api/webhook/?$ webhook.php [L,QSA]
+
+    # Route /api/dashboard to api.php for Hostinger native backend
+    RewriteRule ^api/dashboard/.*$ api.php [L,QSA]
+    RewriteRule ^api/dashboard$ api.php [L,QSA]
 </IfModule>
 
 # 4. Security Headers
