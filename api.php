@@ -338,18 +338,19 @@ if (strpos($uri, '/api/dashboard/messages') !== false) {
         exit;
     }
 
-    $phone = $_GET['phone'] ?? '';
+    $phone = trim($_GET['phone'] ?? '');
     if (!$db || empty($phone)) {
         echo json_encode(["messages" => [], "phone" => $phone, "bot_enabled" => true]);
         exit;
     }
 
-    $stmt = $db->prepare("SELECT * FROM messages WHERE phone_number = ? ORDER BY id ASC LIMIT 250");
-    $stmt->execute([$phone]);
+    $clean = preg_replace('/[^0-9]/', '', $phone);
+    $stmt = $db->prepare("SELECT * FROM messages WHERE phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ? ORDER BY id ASC LIMIT 250");
+    $stmt->execute([$phone, '+' . $clean, $clean]);
     $msgs = $stmt->fetchAll();
 
-    $bStmt = $db->prepare("SELECT bot_enabled FROM contact_settings WHERE phone_number = ?");
-    $bStmt->execute([$phone]);
+    $bStmt = $db->prepare("SELECT bot_enabled FROM contact_settings WHERE phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ? LIMIT 1");
+    $bStmt->execute([$phone, '+' . $clean, $clean]);
     $botRow = $bStmt->fetch();
     $botEnabled = $botRow ? (bool)$botRow['bot_enabled'] : true;
 
