@@ -11,7 +11,20 @@
 # 2. Disable directory browsing
 Options -Indexes
 
-# 3. Security Headers
+# 3. Meta WhatsApp Webhook Routing
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # If Meta verification request hits root / directly (with hub.mode in query string), route to webhook.php
+    RewriteCond %{QUERY_STRING} (hub\.mode=subscribe|hub_mode=subscribe) [NC]
+    RewriteRule ^$ webhook.php [L,QSA]
+
+    # Route /webhook and /api/webhook directly to webhook.php
+    RewriteRule ^webhook/?$ webhook.php [L,QSA]
+    RewriteRule ^api/webhook/?$ webhook.php [L,QSA]
+</IfModule>
+
+# 4. Security Headers
 <IfModule mod_headers.c>
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
