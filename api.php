@@ -27,6 +27,19 @@ function getEnvValues($path) {
     return $env;
 }
 
+// 2. Helper to read JSON request input safely
+function getJsonInput() {
+    $raw = file_get_contents('php://input');
+    if ($raw !== false) {
+        $raw = preg_replace('/^\xEF\xBB\xBF/', '', trim($raw));
+    }
+    $data = !empty($raw) ? json_decode($raw, true) : null;
+    if (!is_array($data) || empty($data)) {
+        $data = !empty($_POST) ? $_POST : $_REQUEST;
+    }
+    return is_array($data) ? $data : [];
+}
+
 $env = getEnvValues($envPath);
 
 // 2. Initialize Database Connection
@@ -315,7 +328,7 @@ if (strpos($uri, '/api/dashboard/conversations') !== false) {
 // Route 3: Messages for a Phone (GET) or Delete Messages (DELETE)
 if (strpos($uri, '/api/dashboard/messages') !== false) {
     if ($method === 'DELETE') {
-        $body = json_decode(file_get_contents('php://input'), true);
+        $body = getJsonInput();
         $ids = $body['ids'] ?? [];
         if ($db && is_array($ids) && count($ids) > 0) {
             $inClause = implode(',', array_map('intval', $ids));
@@ -361,11 +374,7 @@ if (strpos($uri, '/api/dashboard/clear') !== false) {
 
 // Route 5: Send Manual Reply or Simulate Customer Message (/api/dashboard/send)
 if (strpos($uri, '/api/dashboard/send') !== false || strpos($uri, '/api/dashboard/send-reply') !== false) {
-    $rawInput = file_get_contents('php://input');
-    $body = json_decode($rawInput, true);
-    if (!is_array($body)) {
-        $body = $_POST;
-    }
+    $body = getJsonInput();
 
     // Accept phone, recipient, phone_number, or to
     $recipient = trim($body['phone'] ?? ($body['recipient'] ?? ($body['phone_number'] ?? ($body['to'] ?? ''))));
@@ -549,7 +558,7 @@ if (strpos($uri, '/api/dashboard/send-media') !== false) {
 
 // Route 7: Trigger AI Reply (/api/dashboard/trigger-ai-reply)
 if (strpos($uri, '/api/dashboard/trigger-ai-reply') !== false) {
-    $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    $body = getJsonInput();
     $phone = trim($body['phone'] ?? '');
     $customPrompt = trim($body['prompt'] ?? '');
 
@@ -591,7 +600,7 @@ if (strpos($uri, '/api/dashboard/trigger-ai-reply') !== false) {
 
 // Route 8: Test AI (/api/dashboard/test-ai)
 if (strpos($uri, '/api/dashboard/test-ai') !== false) {
-    $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    $body = getJsonInput();
     $prompt = trim($body['prompt'] ?? 'Hi, what are your printing rates?');
 
     $groqKey = $env['GROQ_API_KEY'] ?? '';
@@ -604,7 +613,7 @@ if (strpos($uri, '/api/dashboard/test-ai') !== false) {
 
 // Route 9: Simulate Inbound Customer Message (/api/dashboard/simulate-inbound)
 if (strpos($uri, '/api/dashboard/simulate-inbound') !== false) {
-    $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    $body = getJsonInput();
     $phone = trim($body['phone'] ?? '+918815081605');
     $name = trim($body['name'] ?? 'Customer');
     $msg = trim($body['message'] ?? 'Hi, I need quotation for bulk color printouts');
@@ -630,7 +639,7 @@ if (strpos($uri, '/api/dashboard/simulate-inbound') !== false) {
 
 // Route 10: Bulk Send (/api/dashboard/bulk-send)
 if (strpos($uri, '/api/dashboard/bulk-send') !== false) {
-    $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    $body = getJsonInput();
     $msgTemplate = trim($body['message'] ?? '');
     $recipients = $body['recipients'] ?? ($body['targets'] ?? ($body['phones'] ?? []));
     $sendViaMeta = isset($body['send_via_meta']) ? (bool)$body['send_via_meta'] : true;
@@ -676,7 +685,7 @@ if (strpos($uri, '/api/dashboard/bulk-send') !== false) {
 
 // Route 11: Broadcast Promo (/api/dashboard/broadcast-promo)
 if (strpos($uri, '/api/dashboard/broadcast-promo') !== false) {
-    $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+    $body = getJsonInput();
     $messageText = trim($body['message'] ?? '');
     $targetPhones = $body['phones'] ?? [];
     $sendViaMeta = isset($body['send_via_meta']) ? (bool)$body['send_via_meta'] : true;
@@ -727,7 +736,7 @@ if (strpos($uri, '/api/dashboard/broadcast-promo') !== false) {
 // Route 12: Templates (GET, POST, DELETE)
 if (strpos($uri, '/api/dashboard/templates') !== false) {
     if ($method === 'POST') {
-        $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        $body = getJsonInput();
         $title = trim($body['title'] ?? '');
         $cat = trim($body['category'] ?? 'General');
         $content = trim($body['content'] ?? '');
@@ -756,7 +765,7 @@ if (strpos($uri, '/api/dashboard/templates') !== false) {
 // Route 13: Bookings (/api/dashboard/bookings, /update, /add)
 if (strpos($uri, '/api/dashboard/bookings') !== false) {
     if (strpos($uri, '/add') !== false && $method === 'POST') {
-        $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        $body = getJsonInput();
         if ($db) {
             $stmt = $db->prepare("INSERT INTO bookings (phone_number, customer_name, service, date_time, status, notes) VALUES (?, ?, ?, ?, ?, ?)");
             $stmt->execute([
@@ -773,7 +782,7 @@ if (strpos($uri, '/api/dashboard/bookings') !== false) {
     }
 
     if (strpos($uri, '/update') !== false && $method === 'POST') {
-        $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        $body = getJsonInput();
         if ($db && isset($body['id'])) {
             $stmt = $db->prepare("UPDATE bookings SET status = ? WHERE id = ?");
             $stmt->execute([trim($body['status'] ?? 'confirmed'), (int)$body['id']]);
@@ -797,7 +806,7 @@ if (strpos($uri, '/api/dashboard/webhooks') !== false) {
 // Route 15: Contact Profile (/api/dashboard/contact/profile)
 if (strpos($uri, '/api/dashboard/contact/profile') !== false) {
     if ($method === 'POST') {
-        $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        $body = getJsonInput();
         $phone = trim($body['phone'] ?? '');
         $tags = trim($body['tags'] ?? 'Customer');
         $notes = trim($body['notes'] ?? '');
@@ -825,7 +834,7 @@ if (strpos($uri, '/api/dashboard/contact/profile') !== false) {
 // Route 16: Settings (Save to .env)
 if (strpos($uri, '/api/dashboard/settings') !== false) {
     if ($method === 'POST') {
-        $body = json_decode(file_get_contents('php://input'), true) ?: $_POST;
+        $body = getJsonInput();
         $newGroq = trim($body['groq_api_key'] ?? '');
         $newModel = trim($body['groq_model'] ?? 'llama-3.3-70b-versatile');
         $newMetaToken = trim($body['whatsapp_token'] ?? '');
