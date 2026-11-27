@@ -328,9 +328,14 @@ if (strpos($uri, '/api/dashboard/conversations') !== false) {
     $rows = $db->query($sql)->fetchAll();
     $convs = [];
     $nowTs = time();
+    $seenPhones = [];
     $invalidNames = ['campaign outreach', 'support agent', 'support broadcast', 'support agent (ai)', 'printingtask support', 'user', 'customer', 'undefined', 'null'];
 
     foreach ($rows as $r) {
+        $normPhone = preg_replace('/[^0-9]/', '', $r['phone_number']);
+        if (isset($seenPhones[$normPhone])) continue;
+        $seenPhones[$normPhone] = true;
+
         $expTs = (int)($r['expiration_timestamp'] ?? 0);
         $secondsLeft = max(0, $expTs - $nowTs);
         $isFreeActive = $secondsLeft > 0;
