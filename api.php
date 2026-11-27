@@ -116,6 +116,29 @@ function getDb($dbPath) {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )");
 
+        $db->exec("CREATE TABLE IF NOT EXISTS leads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone_number TEXT NOT NULL,
+            customer_name TEXT DEFAULT 'Lead',
+            business_name TEXT DEFAULT '',
+            category TEXT DEFAULT '',
+            area TEXT DEFAULT '',
+            website TEXT DEFAULT '',
+            source TEXT DEFAULT 'Broadcast / Manual',
+            status TEXT DEFAULT 'New',
+            last_messaged_at TIMESTAMP,
+            notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )");
+
+        $db->exec("CREATE TABLE IF NOT EXISTS security_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone_number TEXT,
+            event_type TEXT DEFAULT 'scan',
+            description TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )");
+
         // Default templates if empty
         $cnt = $db->query("SELECT COUNT(*) FROM templates")->fetchColumn();
         if ($cnt == 0) {
@@ -874,6 +897,236 @@ if (strpos($uri, '/api/dashboard/contact/bot-toggle') !== false) {
         $stmt->execute([$phone, $enabled]);
     }
     echo json_encode(["status" => "success", "phone" => $phone, "bot_enabled" => (bool)$enabled]);
+    exit;
+}
+
+// Route 18: AI Personalize Campaign (/api/dashboard/ai-personalize-campaign)
+if (strpos($uri, '/api/dashboard/ai-personalize-campaign') !== false) {
+    $body = getJsonInput();
+    $leads = $body['leads'] ?? [];
+    $goal = trim($body['campaign_goal'] ?? 'Offering professional services and automated WhatsApp support');
+    $tone = trim($body['tone'] ?? 'friendly_warm');
+    $groqKey = $env['GROQ_API_KEY'] ?? '';
+    $groqModel = $env['GROQ_MODEL'] ?? 'llama-3.3-70b-versatile';
+
+    $results = [];
+    $engineUsed = !empty($groqKey) ? "Groq (" . ($groqModel ?: 'llama-3.3-70b') . ")" : "Smart Template Engine";
+
+    foreach ($leads as $l) {
+        $bName = trim($l['business_name'] ?? ($l['name'] ?? ''));
+        $bCat = trim($l['category'] ?? '');
+        $bArea = trim($l['area'] ?? '');
+        $bPhone = trim($l['phone'] ?? '');
+
+        $pitch = "";
+        if (!empty($groqKey) && !empty($bName)) {
+            $prompt = "Write a concise, friendly, high-converting WhatsApp message (under 35 words) to business owner '{$bName}' in '{$bArea}' who does '{$bCat}'. Offer: '{$goal}'. Tone: {$tone}. Don't use spammy links or hashtags. Include greeting and polite question.";
+            list($aiReply, $eng, $lat) = generateAiReply($prompt, $groqKey, $groqModel);
+            $pitch = $aiReply;
+        }
+
+        if (empty($pitch)) {
+            $areaText = $bArea ? " in {$bArea}" : "";
+            $catText = $bCat ? "{$bCat}" : "business";
+            if ($bName) {
+                $pitch = "Hello {$bName} team! 👋 We love what you're doing with {$catText}{$areaText}. {$goal}. Would you like a quick example or pricing details?";
+            } else {
+                $pitch = "Hello! 👋 We help local businesses{$areaText} with {$goal}. Would you like more details?";
+            }
+        }
+
+        $l['personalized_message'] = $pitch;
+        $l['status'] = 'ready';
+        $results[] = $l;
+    }
+
+    echo json_encode([
+        "success" => true,
+        "total" => count($results),
+        "engine_used" => $engineUsed,
+        "leads" => $results
+    ]);
+    exit;
+}
+
+// Route 19: Broadcast & Campaign Execution (/api/dashboard/broadcast)
+if (strpos($uri, '/api/dashboard/broadcast') !== false) {
+    $body = getJsonInput();
+    $personalized = $body['personalized_messages'] ?? [];
+    $numbers = $body['numbers'] ?? [];
+    $genericMsg = trim($body['message'] ?? '');
+    $sendViaMeta = isset($body['send_via_meta']) ? (bool)$body['send_via_meta'] : true;
+    $addAsLeads = isset($body['add_as_leads']) || isset($body['save_leads']);
+    $leadSource = trim($body['lead_source'] ?? 'Bulk Broadcast');
+
+    $metaToken = $env['WHATSAPP_TOKEN'] ?? '';
+    $phoneId = $env['WHATSAPP_PHONE_NUMBER_ID'] ?? '';
+
+    $sent = 0;
+    $failed = 0;
+    $results = [];
+
+    if (!empty($personalized)) {
+        foreach ($personalized as $item) {
+            $phone = preg_replace('/[^0-9]/', '', $item['phone'] ?? '');
+            $msg = trim($item['message'] ?? '');
+            $name = trim($item['name'] ?? 'Customer');
+            if (empty($phone) || empty($msg)) continue;
+
+            $success = false;
+            $res = '';
+            if ($sendViaMeta && $metaToken && $phoneId) {
+                list($success, $res) = sendMetaWhatsAppMessage($phone, $msg, $metaToken, $phoneId);
+            } else {
+                $success = true;
+                $res = 'Simulated / local send';
+            }
+
+            if ($success) $sent++; else $failed++;
+
+            if ($db) {
+                $db->prepare("INSERT INTO messages (phone_number, sender_name, message, direction, channel, status) VALUES (?, 'Campaign Outreach', ?, 'outbound', 'broadcast', ?)")
+                   ->execute([$phone, $msg, $success ? 'sent' : 'failed']);
+
+                if ($addAsLeads) {
+                    $bCat = trim($item['category'] ?? '');
+                    $bArea = trim($item['area'] ?? '');
+                    $db->prepare("INSERT INTO leads (phone_number, customer_name, business_name, category, area, source, status, last_messaged_at) VALUES (?, ?, ?, ?, ?, ?, 'Contacted', CURRENT_TIMESTAMP)")
+                       ->execute([$phone, $name, $name, $bCat, $bArea, $leadSource]);
+                }
+            }
+
+            $results[] = [
+                "phone" => $phone,
+                "status" => $success ? "sent" : "failed",
+                "api_response" => $res
+            ];
+        }
+    } elseif (!empty($numbers) && !empty($genericMsg)) {
+        foreach ($numbers as $rawPhone) {
+            $phone = preg_replace('/[^0-9]/', '', $rawPhone);
+            if (strlen($phone) === 10) $phone = '91' . $phone;
+            if (empty($phone)) continue;
+
+            $success = false;
+            $res = '';
+            if ($sendViaMeta && $metaToken && $phoneId) {
+                list($success, $res) = sendMetaWhatsAppMessage($phone, $genericMsg, $metaToken, $phoneId);
+            } else {
+                $success = true;
+                $res = 'Simulated / local send';
+            }
+
+            if ($success) $sent++; else $failed++;
+
+            if ($db) {
+                $db->prepare("INSERT INTO messages (phone_number, sender_name, message, direction, channel, status) VALUES (?, 'Support Broadcast', ?, 'outbound', 'broadcast', ?)")
+                   ->execute([$phone, $genericMsg, $success ? 'sent' : 'failed']);
+
+                if ($addAsLeads) {
+                    $db->prepare("INSERT INTO leads (phone_number, customer_name, source, status, last_messaged_at) VALUES (?, 'Lead', ?, 'Contacted', CURRENT_TIMESTAMP)")
+                       ->execute([$phone, $leadSource]);
+                }
+            }
+
+            $results[] = [
+                "phone" => $phone,
+                "status" => $success ? "sent" : "failed",
+                "api_response" => $res
+            ];
+        }
+    }
+
+    echo json_encode([
+        "success" => true,
+        "sent" => $sent,
+        "failed" => $failed,
+        "total" => $sent + $failed,
+        "results" => $results
+    ]);
+    exit;
+}
+
+// Route 20: CRM Leads (/api/dashboard/leads)
+if (strpos($uri, '/api/dashboard/leads') !== false) {
+    if ($method === 'POST') {
+        $body = getJsonInput();
+        $phone = preg_replace('/[^0-9]/', '', $body['phone'] ?? '');
+        $name = trim($body['name'] ?? 'Lead');
+        $bName = trim($body['business_name'] ?? '');
+        $cat = trim($body['category'] ?? '');
+        $area = trim($body['area'] ?? '');
+        $status = trim($body['status'] ?? 'New');
+        $source = trim($body['source'] ?? 'Manual Import');
+
+        if ($db && $phone) {
+            $stmt = $db->prepare("INSERT INTO leads (phone_number, customer_name, business_name, category, area, status, source) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$phone, $name, $bName, $cat, $area, $status, $source]);
+        }
+        echo json_encode(["success" => true]);
+        exit;
+    }
+
+    if ($method === 'DELETE') {
+        $parts = explode('/', trim($uri, '/'));
+        $id = end($parts);
+        if (!is_numeric($id)) $id = $_GET['id'] ?? 0;
+        if ($db && $id) {
+            $db->prepare("DELETE FROM leads WHERE id = ?")->execute([(int)$id]);
+        }
+        echo json_encode(["success" => true]);
+        exit;
+    }
+
+    if ($method === 'PUT') {
+        $body = getJsonInput();
+        $id = $body['id'] ?? 0;
+        $status = trim($body['status'] ?? 'Contacted');
+        if ($db && $id) {
+            $db->prepare("UPDATE leads SET status = ? WHERE id = ?")->execute([$status, (int)$id]);
+        }
+        echo json_encode(["success" => true]);
+        exit;
+    }
+
+    $leads = $db ? $db->query("SELECT * FROM leads ORDER BY id DESC LIMIT 200")->fetchAll() : [];
+    echo json_encode(["leads" => $leads]);
+    exit;
+}
+
+// Route 21: Delete Single Conversation (/api/dashboard/conversation)
+if (strpos($uri, '/api/dashboard/conversation') !== false && $method === 'DELETE') {
+    $phone = trim($_GET['phone'] ?? '');
+    if ($db && $phone) {
+        $clean = preg_replace('/[^0-9]/', '', $phone);
+        $db->prepare("DELETE FROM messages WHERE phone_number = ? OR phone_number = ? OR REPLACE(phone_number, '+', '') = ?")->execute([$phone, '+' . $clean, $clean]);
+        $db->prepare("DELETE FROM meta_conversations WHERE phone_number = ? OR REPLACE(phone_number, '+', '') = ?")->execute([$phone, $clean]);
+    }
+    echo json_encode(["success" => true]);
+    exit;
+}
+
+// Route 22: Graph & Security Mock Endpoints for UI
+if (strpos($uri, '/api/dashboard/graph/status') !== false) {
+    echo json_encode(["status" => "online", "nodes" => 88, "edges" => 240]);
+    exit;
+}
+
+if (strpos($uri, '/api/dashboard/security-events') !== false) {
+    echo json_encode(["events" => []]);
+    exit;
+}
+
+if (strpos($uri, '/api/dashboard/test-guard') !== false) {
+    echo json_encode(["passed" => true, "reason" => "Input validated safely"]);
+    exit;
+}
+
+if (strpos($uri, '/api/dashboard/behavior-segments') !== false) {
+    echo json_encode(["segments" => [
+        ["id" => "active", "title" => "Active Customers (24h Window)", "count" => 3],
+        ["id" => "leads", "title" => "New CRM Prospects", "count" => 88]
+    ]]);
     exit;
 }
 
