@@ -472,9 +472,12 @@ def get_conversations():
             SELECT 
                 m1.phone_number,
                 COALESCE(
-                    (SELECT m_in.sender_name FROM messages m_in WHERE REPLACE(m_in.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '') AND m_in.direction = 'inbound' ORDER BY m_in.id DESC LIMIT 1),
-                    m1.sender_name,
-                    'Customer'
+                    (SELECT l.business_name FROM leads l WHERE (l.phone_number = m1.phone_number OR REPLACE(l.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '')) AND l.business_name != '' LIMIT 1),
+                    (SELECT l.customer_name FROM leads l WHERE (l.phone_number = m1.phone_number OR REPLACE(l.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '')) AND l.customer_name NOT IN ('Lead', '', 'User', 'Customer') LIMIT 1),
+                    (SELECT m_in.sender_name FROM messages m_in WHERE (m_in.phone_number = m1.phone_number OR REPLACE(m_in.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '')) AND m_in.direction = 'inbound' AND m_in.sender_name NOT IN ('User', 'Customer', 'Campaign Outreach', 'Support Agent', 'Support Broadcast', 'Support Agent (AI)', 'printingtask Support') ORDER BY m_in.id DESC LIMIT 1),
+                    (SELECT b.customer_name FROM bookings b WHERE (b.phone_number = m1.phone_number OR REPLACE(b.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '')) AND b.customer_name NOT IN ('Customer', '') ORDER BY b.id DESC LIMIT 1),
+                    CASE WHEN m1.direction = 'inbound' AND m1.sender_name NOT IN ('User', 'Customer', 'Campaign Outreach', 'Support Agent', 'Support Broadcast', 'Support Agent (AI)', 'printingtask Support') THEN m1.sender_name ELSE NULL END,
+                    m1.phone_number
                 ) as sender_name,
                 COALESCE(
                     NULLIF(m1.message, ''),
@@ -486,8 +489,11 @@ def get_conversations():
                 ) as last_message,
                 m1.media_type as last_media_type,
                 m1.direction as last_direction,
-                m1.channel as last_channel,
+                m1.direction as last_message_direction,
+                COALESCE(m1.channel, 'whatsapp') as last_channel,
+                COALESCE(m1.channel, 'whatsapp') as channel,
                 m1.created_at as last_time,
+                m1.created_at as last_message_time,
                 (SELECT m_in2.created_at FROM messages m_in2 WHERE REPLACE(m_in2.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '') AND m_in2.direction = 'inbound' ORDER BY m_in2.id DESC LIMIT 1) as last_inbound_time,
                 (SELECT COUNT(*) FROM messages m2 WHERE REPLACE(m2.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '')) as total_messages,
                 (SELECT COUNT(*) FROM messages m3 WHERE REPLACE(m3.phone_number, '+', '') = REPLACE(m1.phone_number, '+', '') AND m3.direction = 'inbound') as inbound_count,
@@ -511,8 +517,14 @@ def get_conversations():
         now_ts = int(time.time())
         now_utc = datetime.now(timezone.utc)
         results = []
+        invalid_names = {'campaign outreach', 'support agent', 'support broadcast', 'support agent (ai)', 'printingtask support', 'user', 'customer', 'undefined', 'null'}
+
         for r in rows:
             c = dict(r)
+            s_name = (c.get("sender_name") or "").strip()
+            if not s_name or s_name.lower() in invalid_names:
+                s_name = c.get("phone_number")
+            c["sender_name"] = s_name
             meta_exp = c.get("meta_expiration_timestamp")
             last_in = c.get("last_inbound_time")
 
@@ -539,7 +551,9 @@ def get_conversations():
                     pass
 
             c["is_free_window_active"] = is_active
+            c["free_window_active"] = is_active
             c["free_window_seconds_left"] = seconds_left
+            c["free_window_remaining_seconds"] = seconds_left
             c["pricing_category"] = c.get("pricing_category") or "service"
             c["origin_type"] = c.get("origin_type") or "service"
             c["is_billable"] = bool(c.get("is_billable", 0))

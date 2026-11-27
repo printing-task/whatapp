@@ -850,7 +850,7 @@ function deleteChatFromMenu() {
             container.innerHTML = list.map(c => {
                 const isActive = c.phone_number === currentPhone;
                 const activeClass = isActive ? 'bg-emerald-50/80 border-l-4 border-emerald-600' : 'hover:bg-slate-100/70';
-                const isOutbound = c.last_direction === 'outbound';
+                const isOutbound = c.last_direction === 'outbound' || c.last_message_direction === 'outbound';
                 const dirIcon = isOutbound ? '<i class="fas fa-check-double text-emerald-600 mr-1 text-[10px]"></i>' : '';
                 const avatarBg = getAvatarColor(c.phone_number);
                 const isBotActive = c.bot_enabled !== 0 && c.bot_enabled !== false;
@@ -858,19 +858,27 @@ function deleteChatFromMenu() {
                     ? '<span class="text-[9px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.2 rounded" title="AI Bot is auto-replying">AI</span>'
                     : '<span class="text-[9px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.2 rounded" title="Human Agent (AI paused)">Agent</span>';
 
+                const realName = pickRealDisplayName(c.sender_name, c.phone_number);
+                const displayName = realName || (c.phone_number ? (c.phone_number.startsWith('+') ? c.phone_number : `+${c.phone_number}`) : 'Customer');
+                const safeTime = formatTime(c.last_time || c.last_message_time || '');
+                const safeChannel = (c.last_channel && c.last_channel !== 'undefined' && c.last_channel !== 'null') ? c.last_channel : (c.channel || 'whatsapp');
+                const totalMsgs = c.total_messages !== undefined ? c.total_messages : 1;
+                const isFreeActive = !!(c.free_window_active || c.is_free_window_active);
+                const freeSeconds = c.free_window_remaining_seconds || c.free_window_seconds_left || 0;
+
                 return `
-                    <div onclick="selectChat('${c.phone_number}', '${escapeHtml(c.sender_name)}', '${c.last_channel}')" 
+                    <div onclick="selectChat('${c.phone_number}', '${escapeHtml(displayName)}', '${safeChannel}')" 
                          class="group p-3.5 cursor-pointer transition flex items-center space-x-3 ${activeClass}">
                         <div class="w-10 h-10 rounded-full ${avatarBg} flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-sm">
-                            ${getInitials(c.sender_name || c.phone_number)}
+                            ${getInitials(displayName)}
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-center justify-between">
                                 <div class="flex items-center space-x-1.5 truncate">
-                                    <h4 class="text-xs font-bold text-slate-900 truncate">${escapeHtml(c.sender_name || c.phone_number)}</h4>
+                                    <h4 class="text-xs font-bold text-slate-900 truncate">${escapeHtml(displayName)}</h4>
                                     ${botBadge}
                                 </div>
-                                <span class="text-[10px] text-slate-400 font-mono">${formatTime(c.last_time)}</span>
+                                <span class="text-[10px] text-slate-400 font-mono">${safeTime}</span>
                             </div>
                             <div class="flex items-center justify-between mt-0.5 gap-2">
                                 <p class="text-xs text-slate-500 truncate flex-1 min-w-0 pr-1">
@@ -879,18 +887,18 @@ function deleteChatFromMenu() {
                                         : `${dirIcon}${escapeHtml(c.last_message || '')}`}
                                 </p>
                                 <div class="flex items-center space-x-1 flex-shrink-0">
-                                    <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200/80 text-slate-600 font-mono font-bold">${c.total_messages}</span>
-                                    <button onclick="event.stopPropagation(); deleteChatByPhone('${c.phone_number}', '${escapeHtml(c.sender_name || c.phone_number)}')" title="Delete conversation" class="opacity-70 md:opacity-0 md:group-hover:opacity-100 hover:text-red-600 p-1 rounded hover:bg-red-50 text-slate-400 transition ml-1">
+                                    <span class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200/80 text-slate-600 font-mono font-bold">${totalMsgs}</span>
+                                    <button onclick="event.stopPropagation(); deleteChatByPhone('${c.phone_number}', '${escapeHtml(displayName)}')" title="Delete conversation" class="opacity-70 md:opacity-0 md:group-hover:opacity-100 hover:text-red-600 p-1 rounded hover:bg-red-50 text-slate-400 transition ml-1">
                                         <i class="fas fa-trash text-[11px]"></i>
                                     </button>
                                 </div>
                             </div>
                             <!-- 24-Hour Free Promotional Window Tracker Badge -->
                             <div class="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[10px]">
-                                ${c.free_window_active ? `
+                                ${isFreeActive ? `
                                     <span class="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-extrabold border border-emerald-300">
                                         <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                        <span>Free Window (${formatFreeWindowCountdown(c.free_window_remaining_seconds)})</span>
+                                        <span>Free Window (${formatFreeWindowCountdown(freeSeconds)})</span>
                                     </span>
                                     <span class="text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider">₹0 Free Promo</span>
                                 ` : `
@@ -907,16 +915,18 @@ function deleteChatFromMenu() {
 
         async function selectChat(phone, name, channel) {
             currentPhone = phone;
-            currentContactName = name || phone;
+            const realName = pickRealDisplayName(name, phone);
+            currentContactName = realName || (phone ? (phone.startsWith('+') ? phone : `+${phone}`) : 'Customer');
             toggleSelectMode(false);
             document.getElementById('active-name').innerText = currentContactName;
             document.getElementById('active-phone').innerText = phone;
-            document.getElementById('active-avatar').innerHTML = getInitials(name || phone);
+            document.getElementById('active-avatar').innerHTML = getInitials(currentContactName);
             document.getElementById('active-avatar').className = `w-9 h-9 md:w-10 md:h-10 rounded-full ${getAvatarColor(phone)} flex items-center justify-center text-white font-bold shadow-sm text-xs md:text-sm flex-shrink-0`;
             
             const badge = document.getElementById('active-channel-badge');
             badge.classList.remove('hidden');
-            badge.innerText = (channel || 'WHATSAPP').toUpperCase().replace('_', ' ');
+            const safeChannel = (channel && channel !== 'undefined' && channel !== 'null') ? channel : 'WHATSAPP';
+            badge.innerText = safeChannel.toUpperCase().replace('_', ' ');
 
             // Update 24-Hour Free Window UI for Active Contact
             const activeConv = (allConversations || []).find(c => c.phone_number === phone);
@@ -1383,7 +1393,7 @@ function deleteChatFromMenu() {
             if (!val) return '';
             const low = val.toLowerCase();
             const digits = String(phone || '').replace(/\D/g, '');
-            if (['customer', 'lead', 'user', 'unknown', 'business', 'business lead', 'valued business', 'there'].includes(low)) return '';
+            if (['customer', 'lead', 'user', 'unknown', 'business', 'business lead', 'valued business', 'there', 'campaign outreach', 'support agent', 'support broadcast', 'support agent (ai)', 'printingtask support', 'undefined', 'null'].includes(low)) return '';
             if (/^(lead|business|unnamed lead|contact)\s*#?\d+$/.test(low)) return '';
             if (/^\d+$/.test(val) || (digits && val === digits)) return '';
             return val;
@@ -2550,11 +2560,12 @@ function deleteChatFromMenu() {
         }
 
         function formatTime(isoStr) {
-            if (!isoStr) return '';
+            if (!isoStr || isoStr === 'undefined' || isoStr === 'null' || typeof isoStr !== 'string') return '';
             try {
-                const d = new Date(isoStr.replace(' ', 'T') + 'Z');
-                return isNaN(d.getTime()) ? isoStr : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            } catch { return isoStr; }
+                const clean = isoStr.trim().replace(' ', 'T');
+                const d = new Date(clean.includes('Z') || clean.includes('+') ? clean : clean + 'Z');
+                return isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } catch { return ''; }
         }
 
         function getInitials(name) {

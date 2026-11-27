@@ -284,11 +284,31 @@ if (strpos($uri, '/api/dashboard/conversations') !== false) {
     $sql = "
         SELECT 
             m.phone_number,
-            m.sender_name,
-            m.message as last_message,
+            COALESCE(
+                (SELECT l.business_name FROM leads l WHERE (l.phone_number = m.phone_number OR REPLACE(l.phone_number, '+', '') = REPLACE(m.phone_number, '+', '')) AND l.business_name != '' LIMIT 1),
+                (SELECT l.customer_name FROM leads l WHERE (l.phone_number = m.phone_number OR REPLACE(l.phone_number, '+', '') = REPLACE(m.phone_number, '+', '')) AND l.customer_name NOT IN ('Lead', '', 'User', 'Customer') LIMIT 1),
+                (SELECT m_in.sender_name FROM messages m_in WHERE (m_in.phone_number = m.phone_number OR REPLACE(m_in.phone_number, '+', '') = REPLACE(m.phone_number, '+', '')) AND m_in.direction = 'inbound' AND m_in.sender_name NOT IN ('User', 'Customer', 'Campaign Outreach', 'Support Agent', 'Support Broadcast', 'Support Agent (AI)', 'printingtask Support') ORDER BY m_in.id DESC LIMIT 1),
+                (SELECT b.customer_name FROM bookings b WHERE (b.phone_number = m.phone_number OR REPLACE(b.phone_number, '+', '') = REPLACE(m.phone_number, '+', '')) AND b.customer_name NOT IN ('Customer', '') ORDER BY b.id DESC LIMIT 1),
+                CASE WHEN m.direction = 'inbound' AND m.sender_name NOT IN ('User', 'Customer', 'Campaign Outreach', 'Support Agent', 'Support Broadcast', 'Support Agent (AI)', 'printingtask Support') THEN m.sender_name ELSE NULL END,
+                m.phone_number
+            ) as sender_name,
+            COALESCE(
+                NULLIF(m.message, ''),
+                CASE 
+                    WHEN m.media_type = 'image' THEN '📷 Photo'
+                    WHEN m.media_type = 'document' THEN '📄 ' || COALESCE(m.media_filename, 'Document')
+                    ELSE 'Attachment'
+                END
+            ) as last_message,
+            m.direction as last_direction,
             m.direction as last_message_direction,
+            COALESCE(m.channel, 'whatsapp') as last_channel,
+            COALESCE(m.channel, 'whatsapp') as channel,
+            m.created_at as last_time,
             m.created_at as last_message_time,
+            m.status as last_status,
             m.status as last_message_status,
+            (SELECT COUNT(*) FROM messages m2 WHERE REPLACE(m2.phone_number, '+', '') = REPLACE(m.phone_number, '+', '')) as total_messages,
             COALESCE(c.bot_enabled, 1) as bot_enabled,
             mc.expiration_timestamp,
             mc.origin_type,
@@ -298,16 +318,17 @@ if (strpos($uri, '/api/dashboard/conversations') !== false) {
         INNER JOIN (
             SELECT phone_number, MAX(id) as max_id
             FROM messages
-            GROUP BY phone_number
-        ) latest ON m.phone_number = latest.phone_number AND m.id = latest.max_id
-        LEFT JOIN contact_settings c ON m.phone_number = c.phone_number
-        LEFT JOIN meta_conversations mc ON m.phone_number = mc.phone_number
+            GROUP BY REPLACE(phone_number, '+', '')
+        ) latest ON m.id = latest.max_id
+        LEFT JOIN contact_settings c ON REPLACE(m.phone_number, '+', '') = REPLACE(c.phone_number, '+', '')
+        LEFT JOIN meta_conversations mc ON REPLACE(m.phone_number, '+', '') = REPLACE(mc.phone_number, '+', '')
         ORDER BY m.created_at DESC
     ";
 
     $rows = $db->query($sql)->fetchAll();
     $convs = [];
     $nowTs = time();
+    $invalidNames = ['campaign outreach', 'support agent', 'support broadcast', 'support agent (ai)', 'printingtask support', 'user', 'customer', 'undefined', 'null'];
 
     foreach ($rows as $r) {
         $expTs = (int)($r['expiration_timestamp'] ?? 0);
@@ -316,8 +337,8 @@ if (strpos($uri, '/api/dashboard/conversations') !== false) {
 
         // Fallback: check last inbound time
         if (!$isFreeActive) {
-            $inStmt = $db->prepare("SELECT created_at FROM messages WHERE phone_number = ? AND direction = 'inbound' ORDER BY id DESC LIMIT 1");
-            $inStmt->execute([$r['phone_number']]);
+            $inStmt = $db->prepare("SELECT created_at FROM messages WHERE (phone_number = ? OR REPLACE(phone_number, '+', '') = REPLACE(?, '+', '')) AND direction = 'inbound' ORDER BY id DESC LIMIT 1");
+            $inStmt->execute([$r['phone_number'], $r['phone_number']]);
             $lastIn = $inStmt->fetchColumn();
             if ($lastIn) {
                 $lastInTs = strtotime($lastIn);
@@ -329,17 +350,31 @@ if (strpos($uri, '/api/dashboard/conversations') !== false) {
             }
         }
 
+        $sName = trim($r['sender_name'] ?? '');
+        if (empty($sName) || in_array(strtolower($sName), $invalidNames)) {
+            $sName = $r['phone_number'];
+        }
+
         $convs[] = [
             "phone_number" => $r['phone_number'],
-            "sender_name" => $r['sender_name'] ?: 'Customer',
-            "last_message" => $r['last_message'],
+            "sender_name" => $sName,
+            "last_message" => $r['last_message'] ?: '',
+            "last_direction" => $r['last_direction'],
             "last_message_direction" => $r['last_message_direction'],
+            "last_channel" => $r['last_channel'] ?: 'whatsapp',
+            "channel" => $r['channel'] ?: 'whatsapp',
+            "last_time" => $r['last_time'],
             "last_message_time" => $r['last_message_time'],
-            "last_message_status" => $r['last_message_status'],
+            "last_status" => $r['last_status'] ?: 'received',
+            "last_message_status" => $r['last_message_status'] ?: 'received',
+            "total_messages" => (int)($r['total_messages'] ?? 1),
             "bot_enabled" => (bool)$r['bot_enabled'],
             "is_free_window_active" => $isFreeActive,
+            "free_window_active" => $isFreeActive,
             "free_window_seconds_left" => $secondsLeft,
+            "free_window_remaining_seconds" => $secondsLeft,
             "pricing_category" => $r['pricing_category'] ?: 'service',
+            "origin_type" => $r['origin_type'] ?: 'service',
             "is_billable" => (bool)$r['is_billable']
         ];
     }
